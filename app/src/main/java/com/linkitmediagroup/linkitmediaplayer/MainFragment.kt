@@ -70,19 +70,31 @@ class MainFragment : Fragment() {
         val mediaImageView = view.findViewById<ImageView>(R.id.media_image)
         val mediaVideoView = view.findViewById<VideoView>(R.id.media_video)
 
+        // Load animations
+        val fadeIn = android.view.animation.AnimationUtils.loadAnimation(context, R.anim.fade_in)
+        val fadeOut = android.view.animation.AnimationUtils.loadAnimation(context, R.anim.fade_out)
+
         when (mediaItem.type) {
             "image" -> {
                 mediaVideoView.visibility = View.GONE
                 mediaImageView.visibility = View.VISIBLE
                 mediaTextView.visibility = View.GONE
 
-                // Load the image with Glide
-                Glide.with(this).load(mediaItem.url).into(mediaImageView)
+                // Start the fade-in animation after fade-out completes
+                mediaImageView.startAnimation(fadeIn)
 
-                // Set a delay for the duration before showing the next media item
+                // Load the image with Glide
+                Glide.with(this)
+                    .load(mediaItem.url)
+                    .into(mediaImageView)
+
+                // Set a delay for fade-out, then transition to the next item
                 handler.postDelayed({
-                    currentIndex = (currentIndex + 1) % mediaList.size  // Loop back to the first item
-                    displayMediaItem(view, mediaList[currentIndex])
+                    mediaImageView.startAnimation(fadeOut) // Start fade-out animation
+                    handler.postDelayed({
+                        currentIndex = (currentIndex + 1) % mediaList.size  // Loop back to the first item
+                        displayMediaItem(view, mediaList[currentIndex])
+                    }, fadeOut.duration)
                 }, mediaItem.duration)
             }
             "video" -> {
@@ -93,7 +105,6 @@ class MainFragment : Fragment() {
                 mediaVideoView.setVideoPath(mediaItem.url)
                 mediaVideoView.start()
 
-                // Move to the next item after the video finishes playing
                 mediaVideoView.setOnCompletionListener {
                     currentIndex = (currentIndex + 1) % mediaList.size
                     displayMediaItem(view, mediaList[currentIndex])
