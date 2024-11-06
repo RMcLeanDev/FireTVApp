@@ -80,19 +80,17 @@ class MainFragment : Fragment() {
                 mediaImageView.visibility = View.VISIBLE
                 mediaTextView.visibility = View.GONE
 
-                // Start the fade-in animation after fade-out completes
                 mediaImageView.startAnimation(fadeIn)
 
-                // Load the image with Glide
                 Glide.with(this)
                     .load(mediaItem.url)
+                    .error(R.drawable.error_placeholder) // Placeholder for failed loads
                     .into(mediaImageView)
 
-                // Set a delay for fade-out, then transition to the next item
                 handler.postDelayed({
-                    mediaImageView.startAnimation(fadeOut) // Start fade-out animation
+                    mediaImageView.startAnimation(fadeOut)
                     handler.postDelayed({
-                        currentIndex = (currentIndex + 1) % mediaList.size  // Loop back to the first item
+                        currentIndex = (currentIndex + 1) % mediaList.size
                         displayMediaItem(view, mediaList[currentIndex])
                     }, fadeOut.duration)
                 }, mediaItem.duration)
@@ -103,12 +101,18 @@ class MainFragment : Fragment() {
                 mediaTextView.visibility = View.GONE
 
                 mediaVideoView.setVideoPath(mediaItem.url)
-                mediaVideoView.start()
+                mediaVideoView.setOnErrorListener { _, _, _ ->
+                    mediaTextView.text = getString(R.string.failed_to_load_media)
+                    mediaVideoView.visibility = View.GONE
+                    true // Skip to the next item
+                }
 
                 mediaVideoView.setOnCompletionListener {
                     currentIndex = (currentIndex + 1) % mediaList.size
                     displayMediaItem(view, mediaList[currentIndex])
                 }
+
+                mediaVideoView.start()
             }
         }
     }
