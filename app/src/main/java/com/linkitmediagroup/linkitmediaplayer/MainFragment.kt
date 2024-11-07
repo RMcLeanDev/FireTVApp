@@ -42,22 +42,23 @@ class MainFragment : Fragment() {
     private fun setupMediaListener(view: View) {
         database.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(dataSnapshot: DataSnapshot) {
-                mediaList.clear() // Clear the list before adding new items
+                val newMediaList = mutableListOf<MediaItem>()
 
+                // Populate newMediaList with updated items from Firebase
                 dataSnapshot.children.forEach { snapshot ->
                     val url = snapshot.child("url").value as? String
                     val type = snapshot.child("type").value as? String
                     val duration = snapshot.child("duration").value as? Long ?: 3000L
 
                     if (url != null && type != null) {
-                        mediaList.add(MediaItem(url, type, duration))
+                        newMediaList.add(MediaItem(url, type, duration))
                     }
                 }
 
-                // Start displaying media from the first item if the list is not empty
-                if (mediaList.isNotEmpty()) {
-                    currentIndex = 0
-                    displayMediaItem(view, mediaList[currentIndex])
+                // Update mediaList only if there are new items
+                if (newMediaList != mediaList) {
+                    mediaList.clear()
+                    mediaList.addAll(newMediaList)
                 }
             }
 
