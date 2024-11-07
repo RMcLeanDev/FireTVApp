@@ -13,6 +13,8 @@
     <string name="buy_2">AT $9.99</string>
     <string name="movie">Movie</string>
     <string name="failed_to_load_media">Failed to load media.</string>
+    <string name="unsupported_media_type">Unsupported media type</string>
+    <string name="no_media_available">Cannot find media…</string>
 
     <!-- Error messages -->
     <string name="error_fragment_message">An error occurred</string>

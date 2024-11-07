@@ -20,7 +20,9 @@ class MainFragment : Fragment() {
     private lateinit var database: DatabaseReference
     private val handler = Handler(Looper.getMainLooper())
     private var currentIndex = 0
-    private val mediaList = mutableListOf<MediaItem>()
+    private var mediaList = mutableListOf<MediaItem>()
+    private var pendingMediaList = mutableListOf<MediaItem>()
+    private var rotationInProgress = false
 
     data class MediaItem(val url: String, val type: String, val duration: Long = 3000L)
 
@@ -30,35 +32,63 @@ class MainFragment : Fragment() {
     ): View? {
         val view = inflater.inflate(R.layout.fragment_main, container, false)
 
-        // Initialize Firebase Realtime Database reference to "media" node
+        // Initialize Firebase Realtime Database reference
         database = Firebase.database.reference.child("media")
 
-        // Set up listener for changes in the media node on Firebase
-        setupMediaListener(view)
+        // Load initial media content
+        loadInitialMediaContent(view)
 
         return view
+    }
+
+    private fun loadInitialMediaContent(view: View) {
+        database.get().addOnSuccessListener { dataSnapshot ->
+            mediaList.clear()  // Clear list before adding initial items
+
+            dataSnapshot.children.forEach { snapshot ->
+                val url = snapshot.child("url").value as? String
+                val type = snapshot.child("type").value as? String
+                val duration = snapshot.child("duration").value as? Long ?: 3000L
+
+                if (url != null && type != null) {
+                    mediaList.add(MediaItem(url, type, duration))
+                }
+            }
+
+            if (mediaList.isNotEmpty()) {
+                // Start displaying media from the first item
+                displayMediaItem(view)
+            }
+
+            // Set up listener for changes in the media node
+            setupMediaListener(view)
+
+        }.addOnFailureListener {
+            val mediaTextView = view.findViewById<TextView>(R.id.media_text)
+            mediaTextView?.text = getString(R.string.failed_to_load_media)
+        }
     }
 
     private fun setupMediaListener(view: View) {
         database.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(dataSnapshot: DataSnapshot) {
-                val newMediaList = mutableListOf<MediaItem>()
+                pendingMediaList.clear()
 
-                // Populate newMediaList with updated items from Firebase
                 dataSnapshot.children.forEach { snapshot ->
                     val url = snapshot.child("url").value as? String
                     val type = snapshot.child("type").value as? String
                     val duration = snapshot.child("duration").value as? Long ?: 3000L
 
                     if (url != null && type != null) {
-                        newMediaList.add(MediaItem(url, type, duration))
+                        pendingMediaList.add(MediaItem(url, type, duration))
                     }
                 }
 
-                // Update mediaList only if there are new items
-                if (newMediaList != mediaList) {
-                    mediaList.clear()
-                    mediaList.addAll(newMediaList)
+                // Apply the pending list only when a full rotation completes
+                if (!rotationInProgress) {
+                    mediaList = pendingMediaList.toMutableList()
+                    currentIndex = 0
+                    displayMediaItem(view)
                 }
             }
 
@@ -69,7 +99,11 @@ class MainFragment : Fragment() {
         })
     }
 
-    private fun displayMediaItem(view: View, mediaItem: MediaItem) {
+    private fun displayMediaItem(view: View) {
+        if (mediaList.isEmpty()) return  // Exit if there are no items to display
+
+        rotationInProgress = true
+        val mediaItem = mediaList[currentIndex]
         val mediaTextView = view.findViewById<TextView>(R.id.media_text)
         val mediaImageView = view.findViewById<ImageView>(R.id.media_image)
         val mediaVideoView = view.findViewById<VideoView>(R.id.media_video)
@@ -88,14 +122,18 @@ class MainFragment : Fragment() {
 
                 Glide.with(this)
                     .load(mediaItem.url)
-                    .error(R.drawable.error_placeholder) // Placeholder for failed loads
+                    .error(R.drawable.error_placeholder)
                     .into(mediaImageView)
 
                 handler.postDelayed({
                     mediaImageView.startAnimation(fadeOut)
                     handler.postDelayed({
                         currentIndex = (currentIndex + 1) % mediaList.size
-                        displayMediaItem(view, mediaList[currentIndex])
+                        if (currentIndex == 0) {
+                            // Update media list after a full rotation
+                            mediaList = pendingMediaList.toMutableList()
+                        }
+                        displayMediaItem(view)
                     }, fadeOut.duration)
                 }, mediaItem.duration)
             }
@@ -113,7 +151,11 @@ class MainFragment : Fragment() {
 
                 mediaVideoView.setOnCompletionListener {
                     currentIndex = (currentIndex + 1) % mediaList.size
-                    displayMediaItem(view, mediaList[currentIndex])
+                    if (currentIndex == 0) {
+                        // Update media list after a full rotation
+                        mediaList = pendingMediaList.toMutableList()
+                    }
+                    displayMediaItem(view)
                 }
 
                 mediaVideoView.start()
@@ -123,6 +165,6 @@ class MainFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
-        handler.removeCallbacksAndMessages(null)  // Stop any pending callbacks when the view is destroyed
+        handler.removeCallbacksAndMessages(null)
     }
 }
