@@ -11,9 +11,9 @@ import android.widget.TextView
 import android.widget.VideoView
 import androidx.fragment.app.Fragment
 import com.bumptech.glide.Glide
-import com.google.firebase.database.DatabaseReference
-import com.google.firebase.database.ktx.database
+import com.google.firebase.database.*
 import com.google.firebase.ktx.Firebase
+import com.google.firebase.database.ktx.database
 
 class MainFragment : Fragment() {
 
@@ -22,8 +22,6 @@ class MainFragment : Fragment() {
     private var currentIndex = 0
     private val mediaList = mutableListOf<MediaItem>()
 
-    private val preloadCount = 3
-
     data class MediaItem(val url: String, val type: String, val duration: Long = 3000L)
 
     override fun onCreateView(
@@ -31,35 +29,43 @@ class MainFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View? {
         val view = inflater.inflate(R.layout.fragment_main, container, false)
-        database = Firebase.database.reference
-        loadMediaContent(view)
+
+        // Initialize Firebase Realtime Database reference to "media" node
+        database = Firebase.database.reference.child("media")
+
+        // Set up listener for changes in the media node on Firebase
+        setupMediaListener(view)
 
         return view
     }
 
-    private fun loadMediaContent(view: View) {
-        database.child("media").get().addOnSuccessListener { dataSnapshot ->
-            mediaList.clear()
+    private fun setupMediaListener(view: View) {
+        database.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(dataSnapshot: DataSnapshot) {
+                mediaList.clear() // Clear the list before adding new items
 
-            dataSnapshot.children.forEach { snapshot ->
-                val url = snapshot.child("url").value as? String
-                val type = snapshot.child("type").value as? String
-                val duration = snapshot.child("duration").value as? Long ?: 3000L
+                dataSnapshot.children.forEach { snapshot ->
+                    val url = snapshot.child("url").value as? String
+                    val type = snapshot.child("type").value as? String
+                    val duration = snapshot.child("duration").value as? Long ?: 3000L
 
-                if (url != null && type != null) {
-                    mediaList.add(MediaItem(url, type, duration))
+                    if (url != null && type != null) {
+                        mediaList.add(MediaItem(url, type, duration))
+                    }
+                }
+
+                // Start displaying media from the first item if the list is not empty
+                if (mediaList.isNotEmpty()) {
+                    currentIndex = 0
+                    displayMediaItem(view, mediaList[currentIndex])
                 }
             }
 
-            if (mediaList.isNotEmpty()) {
-                displayMediaItem(view, mediaList[currentIndex])
-                preloadNextItems()
+            override fun onCancelled(error: DatabaseError) {
+                val mediaTextView = view.findViewById<TextView>(R.id.media_text)
+                mediaTextView?.text = getString(R.string.failed_to_load_media)
             }
-
-        }.addOnFailureListener {
-            val mediaTextView = view.findViewById<TextView>(R.id.media_text)
-            mediaTextView?.text = getString(R.string.failed_to_load_media)
-        }
+        })
     }
 
     private fun displayMediaItem(view: View, mediaItem: MediaItem) {
@@ -67,6 +73,7 @@ class MainFragment : Fragment() {
         val mediaImageView = view.findViewById<ImageView>(R.id.media_image)
         val mediaVideoView = view.findViewById<VideoView>(R.id.media_video)
 
+        // Load animations
         val fadeIn = android.view.animation.AnimationUtils.loadAnimation(context, R.anim.fade_in)
         val fadeOut = android.view.animation.AnimationUtils.loadAnimation(context, R.anim.fade_out)
 
@@ -80,7 +87,7 @@ class MainFragment : Fragment() {
 
                 Glide.with(this)
                     .load(mediaItem.url)
-                    .error(R.drawable.error_placeholder)
+                    .error(R.drawable.error_placeholder) // Placeholder for failed loads
                     .into(mediaImageView)
 
                 handler.postDelayed({
@@ -88,7 +95,6 @@ class MainFragment : Fragment() {
                     handler.postDelayed({
                         currentIndex = (currentIndex + 1) % mediaList.size
                         displayMediaItem(view, mediaList[currentIndex])
-                        preloadNextItems()
                     }, fadeOut.duration)
                 }, mediaItem.duration)
             }
@@ -101,13 +107,12 @@ class MainFragment : Fragment() {
                 mediaVideoView.setOnErrorListener { _, _, _ ->
                     mediaTextView.text = getString(R.string.failed_to_load_media)
                     mediaVideoView.visibility = View.GONE
-                    true // Skip to the next item
+                    true
                 }
 
                 mediaVideoView.setOnCompletionListener {
                     currentIndex = (currentIndex + 1) % mediaList.size
                     displayMediaItem(view, mediaList[currentIndex])
-                    preloadNextItems()
                 }
 
                 mediaVideoView.start()
@@ -115,24 +120,8 @@ class MainFragment : Fragment() {
         }
     }
 
-    private fun preloadNextItems() {
-        for (i in 1..preloadCount) {
-            val nextIndex = (currentIndex + i) % mediaList.size
-            val mediaItem = mediaList[nextIndex]
-
-            if (mediaItem.type == "image") {
-                Glide.with(this).load(mediaItem.url).preload()
-            } else if (mediaItem.type == "video") {
-                VideoView(context).apply {
-                    setVideoPath(mediaItem.url)
-                    setOnPreparedListener { /* Metadata is loaded */ }
-                }
-            }
-        }
-    }
-
     override fun onDestroyView() {
         super.onDestroyView()
-        handler.removeCallbacksAndMessages(null)
+        handler.removeCallbacksAndMessages(null)  // Stop any pending callbacks when the view is destroyed
     }
 }
