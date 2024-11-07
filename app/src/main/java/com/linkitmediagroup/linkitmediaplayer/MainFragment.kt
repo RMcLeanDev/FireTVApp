@@ -22,19 +22,16 @@ class MainFragment : Fragment() {
     private var currentIndex = 0
     private val mediaList = mutableListOf<MediaItem>()
 
+    private val preloadCount = 3
+
     data class MediaItem(val url: String, val type: String, val duration: Long = 3000L)
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
-        // Inflate the layout for this fragment
         val view = inflater.inflate(R.layout.fragment_main, container, false)
-
-        // Initialize Firebase Realtime Database
         database = Firebase.database.reference
-
-        // Load data from Firebase
         loadMediaContent(view)
 
         return view
@@ -42,21 +39,21 @@ class MainFragment : Fragment() {
 
     private fun loadMediaContent(view: View) {
         database.child("media").get().addOnSuccessListener { dataSnapshot ->
-            mediaList.clear() // Clear the list before adding new items
+            mediaList.clear()
 
             dataSnapshot.children.forEach { snapshot ->
                 val url = snapshot.child("url").value as? String
                 val type = snapshot.child("type").value as? String
-                val duration = snapshot.child("duration").value as? Long ?: 3000L  // Default to 3 seconds if no duration provided
+                val duration = snapshot.child("duration").value as? Long ?: 3000L
 
                 if (url != null && type != null) {
                     mediaList.add(MediaItem(url, type, duration))
                 }
             }
 
-            // Start displaying media from the first item
             if (mediaList.isNotEmpty()) {
                 displayMediaItem(view, mediaList[currentIndex])
+                preloadNextItems()
             }
 
         }.addOnFailureListener {
@@ -70,7 +67,6 @@ class MainFragment : Fragment() {
         val mediaImageView = view.findViewById<ImageView>(R.id.media_image)
         val mediaVideoView = view.findViewById<VideoView>(R.id.media_video)
 
-        // Load animations
         val fadeIn = android.view.animation.AnimationUtils.loadAnimation(context, R.anim.fade_in)
         val fadeOut = android.view.animation.AnimationUtils.loadAnimation(context, R.anim.fade_out)
 
@@ -84,7 +80,7 @@ class MainFragment : Fragment() {
 
                 Glide.with(this)
                     .load(mediaItem.url)
-                    .error(R.drawable.error_placeholder) // Placeholder for failed loads
+                    .error(R.drawable.error_placeholder)
                     .into(mediaImageView)
 
                 handler.postDelayed({
@@ -92,6 +88,7 @@ class MainFragment : Fragment() {
                     handler.postDelayed({
                         currentIndex = (currentIndex + 1) % mediaList.size
                         displayMediaItem(view, mediaList[currentIndex])
+                        preloadNextItems()
                     }, fadeOut.duration)
                 }, mediaItem.duration)
             }
@@ -110,6 +107,7 @@ class MainFragment : Fragment() {
                 mediaVideoView.setOnCompletionListener {
                     currentIndex = (currentIndex + 1) % mediaList.size
                     displayMediaItem(view, mediaList[currentIndex])
+                    preloadNextItems()
                 }
 
                 mediaVideoView.start()
@@ -117,8 +115,24 @@ class MainFragment : Fragment() {
         }
     }
 
+    private fun preloadNextItems() {
+        for (i in 1..preloadCount) {
+            val nextIndex = (currentIndex + i) % mediaList.size
+            val mediaItem = mediaList[nextIndex]
+
+            if (mediaItem.type == "image") {
+                Glide.with(this).load(mediaItem.url).preload()
+            } else if (mediaItem.type == "video") {
+                VideoView(context).apply {
+                    setVideoPath(mediaItem.url)
+                    setOnPreparedListener { /* Metadata is loaded */ }
+                }
+            }
+        }
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
-        handler.removeCallbacksAndMessages(null)  // Stop any pending callbacks when the view is destroyed
+        handler.removeCallbacksAndMessages(null)
     }
 }
