@@ -2,9 +2,15 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
+    id("kotlin-kapt")
 }
 
 android {
+    kapt {
+        arguments {
+            arg("room.schemaLocation", "$projectDir/schemas")
+        }
+    }
     namespace = "com.linkitmediagroup.linkitmediaplayer"
     compileSdk = 35
 
@@ -36,7 +42,7 @@ android {
 }
 
 dependencies {
-
+    // Existing dependencies
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.4.0")
     implementation("androidx.leanback:leanback:1.0.0")
@@ -44,4 +50,12 @@ dependencies {
     implementation("com.google.firebase:firebase-database-ktx:20.2.1")
     implementation("com.google.firebase:firebase-storage-ktx:20.2.1")
     implementation("com.google.firebase:firebase-common-ktx:20.2.1")
+
+    // Room for offline caching
+    implementation("androidx.room:room-runtime:2.5.1")
+    kapt("androidx.room:room-compiler:2.5.1")
+
+    // Glide for image caching
+    implementation("com.github.bumptech.glide:glide:4.11.0")
+    kapt("com.github.bumptech.glide:compiler:4.11.0")
 }

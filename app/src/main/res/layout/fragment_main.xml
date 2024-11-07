@@ -4,13 +4,22 @@
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
+    <TextView
+        android:id="@+id/network_status_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:padding="8dp"
+        android:text="Offline"
+        android:textColor="@android:color/white" />
+
     <ImageView
-    	android:id="@+id/media_image"
-    	android:layout_width="match_parent"
-    	android:layout_height="match_parent"
-   	android:adjustViewBounds="true"
-   	android:scaleType="fitCenter"
-   	android:visibility="gone" />
+        android:id="@+id/media_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:adjustViewBounds="true"
+        android:scaleType="fitCenter"
+        android:visibility="gone" />
 
     <VideoView
         android:id="@+id/media_video"
@@ -23,6 +32,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:text="Loading media..." />
+        android:text="Loading media..."
+        android:textColor="@android:color/white" />
 
 </FrameLayout>

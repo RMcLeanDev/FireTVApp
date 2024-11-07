@@ -1,5 +1,8 @@
 package com.linkitmediagroup.linkitmediaplayer
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -14,6 +17,10 @@ import com.bumptech.glide.Glide
 import com.google.firebase.database.*
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.database.ktx.database
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainFragment : Fragment() {
 
@@ -23,6 +30,7 @@ class MainFragment : Fragment() {
     private var mediaList = mutableListOf<MediaItem>()
     private var pendingMediaList = mutableListOf<MediaItem>()
     private var rotationInProgress = false
+    private lateinit var networkStatusTextView: TextView
 
     data class MediaItem(val url: String, val type: String, val duration: Long = 3000L)
 
@@ -35,37 +43,91 @@ class MainFragment : Fragment() {
         // Initialize Firebase Realtime Database reference
         database = Firebase.database.reference.child("media")
 
+        // Reference to the network status text view
+        networkStatusTextView = view.findViewById(R.id.network_status_text)
+
         // Load initial media content
         loadInitialMediaContent(view)
 
         return view
     }
 
+    override fun onResume() {
+        super.onResume()
+        checkNetworkStatus()  // Check network status whenever the fragment is resumed
+    }
+
+    // Function to check and display network status
+    private fun checkNetworkStatus() {
+        if (requireContext().isNetworkAvailable()) {
+            networkStatusTextView.text = "Online"
+        } else {
+            networkStatusTextView.text = "Offline"
+        }
+    }
+
+    // Utility function to check network availability
+    private fun Context.isNetworkAvailable(): Boolean {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            val network = connectivityManager.activeNetwork ?: return false
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } else {
+            val networkInfo = connectivityManager.activeNetworkInfo
+            networkInfo != null && networkInfo.isConnected
+        }
+    }
+
     private fun loadInitialMediaContent(view: View) {
-        database.get().addOnSuccessListener { dataSnapshot ->
-            mediaList.clear()  // Clear list before adding initial items
+        if (requireContext().isNetworkAvailable()) {
+            // Online: Fetch from Firebase and cache to Room
+            database.get().addOnSuccessListener { dataSnapshot ->
+                mediaList.clear()
+                val newMediaList = mutableListOf<MediaItem>()
 
-            dataSnapshot.children.forEach { snapshot ->
-                val url = snapshot.child("url").value as? String
-                val type = snapshot.child("type").value as? String
-                val duration = snapshot.child("duration").value as? Long ?: 3000L
+                dataSnapshot.children.forEach { snapshot ->
+                    val url = snapshot.child("url").value as? String
+                    val type = snapshot.child("type").value as? String
+                    val duration = snapshot.child("duration").value as? Long ?: 3000L
 
-                if (url != null && type != null) {
-                    mediaList.add(MediaItem(url, type, duration))
+                    if (url != null && type != null) {
+                        val mediaItem = MediaItem(url, type, duration)
+                        newMediaList.add(mediaItem)
+                    }
+                }
+
+                if (newMediaList.isNotEmpty()) {
+                    mediaList.addAll(newMediaList)
+                    // Cache new items to Room
+                    CoroutineScope(Dispatchers.IO).launch {
+                        AppDatabase.getDatabase(requireContext()).mediaItemDao().clearAndInsert(newMediaList.map {
+                            MediaItemEntity(it.url, it.type, it.duration)
+                        })
+                    }
+                }
+
+                if (mediaList.isNotEmpty()) displayMediaItem(view)
+                setupMediaListener(view)
+
+            }.addOnFailureListener {
+                val mediaTextView = view.findViewById<TextView>(R.id.media_text)
+                mediaTextView?.text = getString(R.string.failed_to_load_media)
+            }
+        } else {
+            // Offline: Load from Room
+            CoroutineScope(Dispatchers.IO).launch {
+                val cachedItems = AppDatabase.getDatabase(requireContext()).mediaItemDao().getAllMediaItems()
+                mediaList = cachedItems.map { MediaItem(it.url, it.type, it.duration) }.toMutableList()
+                if (mediaList.isNotEmpty()) {
+                    withContext(Dispatchers.Main) { displayMediaItem(view) }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        val mediaTextView = view.findViewById<TextView>(R.id.media_text)
+                        mediaTextView?.text = getString(R.string.failed_to_load_media)
+                    }
                 }
             }
-
-            if (mediaList.isNotEmpty()) {
-                // Start displaying media from the first item
-                displayMediaItem(view)
-            }
-
-            // Set up listener for changes in the media node
-            setupMediaListener(view)
-
-        }.addOnFailureListener {
-            val mediaTextView = view.findViewById<TextView>(R.id.media_text)
-            mediaTextView?.text = getString(R.string.failed_to_load_media)
         }
     }
 
