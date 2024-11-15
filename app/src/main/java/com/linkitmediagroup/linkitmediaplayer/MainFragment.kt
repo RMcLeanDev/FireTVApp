@@ -4,12 +4,14 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.VideoView
 import androidx.fragment.app.Fragment
@@ -21,6 +23,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.net.URL
 
 class MainFragment : Fragment() {
 
@@ -31,6 +36,7 @@ class MainFragment : Fragment() {
     private var pendingMediaList = mutableListOf<MediaItem>()
     private var rotationInProgress = false
     private lateinit var networkStatusTextView: TextView
+    private lateinit var loadingSpinner: ProgressBar
 
     data class MediaItem(val url: String, val type: String, val duration: Long = 3000L)
 
@@ -45,6 +51,10 @@ class MainFragment : Fragment() {
 
         // Reference to the network status text view
         networkStatusTextView = view.findViewById(R.id.network_status_text)
+
+        // Initialize loading spinner
+        loadingSpinner = view.findViewById(R.id.loading_spinner)
+        loadingSpinner.visibility = View.VISIBLE
 
         // Load initial media content
         loadInitialMediaContent(view)
@@ -109,10 +119,12 @@ class MainFragment : Fragment() {
 
                 if (mediaList.isNotEmpty()) displayMediaItem(view)
                 setupMediaListener(view)
+                loadingSpinner.visibility = View.GONE
 
             }.addOnFailureListener {
                 val mediaTextView = view.findViewById<TextView>(R.id.media_text)
                 mediaTextView?.text = getString(R.string.failed_to_load_media)
+                loadingSpinner.visibility = View.GONE
             }
         } else {
             // Offline: Load from Room
@@ -120,11 +132,15 @@ class MainFragment : Fragment() {
                 val cachedItems = AppDatabase.getDatabase(requireContext()).mediaItemDao().getAllMediaItems()
                 mediaList = cachedItems.map { MediaItem(it.url, it.type, it.duration) }.toMutableList()
                 if (mediaList.isNotEmpty()) {
-                    withContext(Dispatchers.Main) { displayMediaItem(view) }
+                    withContext(Dispatchers.Main) {
+                        displayMediaItem(view)
+                        loadingSpinner.visibility = View.GONE
+                    }
                 } else {
                     withContext(Dispatchers.Main) {
                         val mediaTextView = view.findViewById<TextView>(R.id.media_text)
                         mediaTextView?.text = getString(R.string.failed_to_load_media)
+                        loadingSpinner.visibility = View.GONE
                     }
                 }
             }
