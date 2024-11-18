@@ -4,9 +4,9 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
-import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -23,14 +23,19 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.net.URL
 
 class MainFragment : Fragment() {
 
     private lateinit var database: DatabaseReference
+    private lateinit var firebaseListener: ValueEventListener
     private val handler = Handler(Looper.getMainLooper())
+    private val networkStatusHandler = Handler(Looper.getMainLooper())
+    private val networkStatusRunnable: Runnable = object : Runnable {
+        override fun run() {
+            checkNetworkStatus()
+            networkStatusHandler.postDelayed(this, 2000) // Check every 2 seconds
+        }
+    }
     private var currentIndex = 0
     private var mediaList = mutableListOf<MediaItem>()
     private var pendingMediaList = mutableListOf<MediaItem>()
@@ -64,19 +69,30 @@ class MainFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        checkNetworkStatus()  // Check network status whenever the fragment is resumed
+        networkStatusHandler.post(networkStatusRunnable) // Start periodic network checks
     }
 
-    // Function to check and display network status
+    override fun onPause() {
+        super.onPause()
+        networkStatusHandler.removeCallbacks(networkStatusRunnable) // Stop periodic checks
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        handler.removeCallbacksAndMessages(null) // Stop all pending callbacks
+        networkStatusHandler.removeCallbacks(networkStatusRunnable) // Stop periodic checks
+        database.removeEventListener(firebaseListener) // Remove Firebase listener
+    }
+
     private fun checkNetworkStatus() {
-        if (requireContext().isNetworkAvailable()) {
-            networkStatusTextView.text = "Online"
-        } else {
-            networkStatusTextView.text = "Offline"
+        val isOnline = requireContext().isNetworkAvailable()
+        val status = if (isOnline) "Online" else "Offline"
+        if (networkStatusTextView.text != status) {
+            networkStatusTextView.text = status
+            Log.d("MainFragment", "Network status updated to: $status")
         }
     }
 
-    // Utility function to check network availability
     private fun Context.isNetworkAvailable(): Boolean {
         val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
@@ -148,7 +164,7 @@ class MainFragment : Fragment() {
     }
 
     private fun setupMediaListener(view: View) {
-        database.addValueEventListener(object : ValueEventListener {
+        firebaseListener = object : ValueEventListener {
             override fun onDataChange(dataSnapshot: DataSnapshot) {
                 pendingMediaList.clear()
 
@@ -162,7 +178,6 @@ class MainFragment : Fragment() {
                     }
                 }
 
-                // Apply the pending list only when a full rotation completes
                 if (!rotationInProgress) {
                     mediaList = pendingMediaList.toMutableList()
                     currentIndex = 0
@@ -174,7 +189,9 @@ class MainFragment : Fragment() {
                 val mediaTextView = view.findViewById<TextView>(R.id.media_text)
                 mediaTextView?.text = getString(R.string.failed_to_load_media)
             }
-        })
+        }
+
+        database.addValueEventListener(firebaseListener)
     }
 
     private fun displayMediaItem(view: View) {
@@ -221,13 +238,13 @@ class MainFragment : Fragment() {
                 mediaTextView.visibility = View.GONE
 
                 mediaVideoView.setVideoPath(mediaItem.url)
-                mediaVideoView.setOnErrorListener { _, _, _ ->
-                    mediaTextView.text = getString(R.string.failed_to_load_media)
-                    mediaVideoView.visibility = View.GONE
-                    true
+                mediaVideoView.setOnPreparedListener {
+                    mediaVideoView.start()
+                    mediaVideoView.startAnimation(fadeIn)
                 }
 
                 mediaVideoView.setOnCompletionListener {
+                    mediaVideoView.startAnimation(fadeOut)
                     currentIndex = (currentIndex + 1) % mediaList.size
                     if (currentIndex == 0) {
                         // Update media list after a full rotation
@@ -235,14 +252,7 @@ class MainFragment : Fragment() {
                     }
                     displayMediaItem(view)
                 }
-
-                mediaVideoView.start()
             }
         }
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        handler.removeCallbacksAndMessages(null)
     }
 }
