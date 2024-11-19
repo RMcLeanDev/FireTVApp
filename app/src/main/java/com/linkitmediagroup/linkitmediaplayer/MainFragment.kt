@@ -42,6 +42,8 @@ class MainFragment : Fragment() {
     private var rotationInProgress = false
     private lateinit var networkStatusTextView: TextView
     private lateinit var loadingSpinner: ProgressBar
+    private lateinit var pairingCodeTextView: TextView
+    private lateinit var pairingCode: String
 
     data class MediaItem(val url: String, val type: String, val duration: Long = 3000L)
 
@@ -57,9 +59,20 @@ class MainFragment : Fragment() {
         // Reference to the network status text view
         networkStatusTextView = view.findViewById(R.id.network_status_text)
 
+        // Reference to the pairing code text view
+        pairingCodeTextView = view.findViewById(R.id.pairing_code_text)
+
         // Initialize loading spinner
         loadingSpinner = view.findViewById(R.id.loading_spinner)
         loadingSpinner.visibility = View.VISIBLE
+
+        // Generate and display pairing code
+        pairingCode = generatePairingCode()
+        savePairingCodeToFirebase(pairingCode)
+        displayPairingCode(pairingCode)
+
+        // Listen for playlist assignment
+        listenForPlaylistAssignment(pairingCode)
 
         // Load initial media content
         loadInitialMediaContent(view)
@@ -84,6 +97,70 @@ class MainFragment : Fragment() {
         database.removeEventListener(firebaseListener) // Remove Firebase listener
     }
 
+    private fun generatePairingCode(): String {
+        val allowedChars = ('A'..'Z') + ('0'..'9')
+        return (1..8).map { allowedChars.random() }.joinToString("")
+    }
+
+    private fun savePairingCodeToFirebase(pairingCode: String) {
+        val databaseRef = Firebase.database.reference.child("pairings").child(pairingCode)
+        val deviceData = mapOf(
+            "deviceName" to "Living Room TV", // Replace with a dynamic name if needed
+            "playlistId" to null
+        )
+
+        databaseRef.setValue(deviceData).addOnSuccessListener {
+            Log.d("Pairing", "Pairing code saved successfully.")
+        }.addOnFailureListener { error ->
+            Log.e("Pairing", "Failed to save pairing code: ${error.message}")
+        }
+    }
+
+    private fun displayPairingCode(pairingCode: String) {
+        pairingCodeTextView.text = "Pairing Code: $pairingCode"
+    }
+
+    private fun listenForPlaylistAssignment(pairingCode: String) {
+        val databaseRef = Firebase.database.reference.child("pairings").child(pairingCode).child("playlistId")
+        databaseRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val playlistId = snapshot.value as? String
+                if (playlistId != null) {
+                    Log.d("Pairing", "Playlist assigned: $playlistId")
+                    loadPlaylist(playlistId)
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e("Pairing", "Failed to listen for playlist: ${error.message}")
+            }
+        })
+    }
+
+    private fun loadPlaylist(playlistId: String) {
+        // Replace "media" with the Firebase node for playlists
+        val playlistRef = Firebase.database.reference.child("playlists").child(playlistId)
+        playlistRef.get().addOnSuccessListener { dataSnapshot ->
+            val newMediaList = mutableListOf<MediaItem>()
+            dataSnapshot.child("items").children.forEach { snapshot ->
+                val url = snapshot.child("url").value as? String
+                val type = snapshot.child("type").value as? String
+                val duration = snapshot.child("duration").value as? Long ?: 3000L
+
+                if (url != null && type != null) {
+                    newMediaList.add(MediaItem(url, type, duration))
+                }
+            }
+
+            if (newMediaList.isNotEmpty()) {
+                mediaList = newMediaList
+                currentIndex = 0
+                displayMediaItem(requireView())
+            }
+        }.addOnFailureListener { error ->
+            Log.e("Pairing", "Failed to load playlist: ${error.message}")
+        }
+    }
     private fun checkNetworkStatus() {
         val isOnline = requireContext().isNetworkAvailable()
         val status = if (isOnline) "Online" else "Offline"
