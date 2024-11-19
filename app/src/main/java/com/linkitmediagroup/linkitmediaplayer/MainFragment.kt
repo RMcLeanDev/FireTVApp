@@ -3,9 +3,11 @@ package com.linkitmediagroup.linkitmediaplayer
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -26,20 +28,25 @@ import kotlinx.coroutines.withContext
 
 class MainFragment : Fragment() {
 
-    private lateinit var database: DatabaseReference
+    private lateinit var mediaDatabase: DatabaseReference
+    private lateinit var devicesDatabase: DatabaseReference
     private lateinit var firebaseListener: ValueEventListener
+    private lateinit var assignmentListener: ValueEventListener
     private val handler = Handler(Looper.getMainLooper())
     private val networkStatusHandler = Handler(Looper.getMainLooper())
+    private lateinit var deviceSerial: String
     private val networkStatusRunnable: Runnable = object : Runnable {
         override fun run() {
             checkNetworkStatus()
             networkStatusHandler.postDelayed(this, 2000) // Check every 2 seconds
         }
     }
+
     private var currentIndex = 0
     private var mediaList = mutableListOf<MediaItem>()
     private var pendingMediaList = mutableListOf<MediaItem>()
     private var rotationInProgress = false
+
     private lateinit var networkStatusTextView: TextView
     private lateinit var loadingSpinner: ProgressBar
     private lateinit var pairingCodeTextView: TextView
@@ -53,26 +60,23 @@ class MainFragment : Fragment() {
     ): View? {
         val view = inflater.inflate(R.layout.fragment_main, container, false)
 
-        // Initialize Firebase Realtime Database reference
-        database = Firebase.database.reference.child("media")
+        // Initialize Firebase Realtime Database references
+        mediaDatabase = Firebase.database.reference.child("media")
+        devicesDatabase = Firebase.database.reference.child("devices")
 
-        // Reference to the network status text view
+        // Initialize device serial
+        deviceSerial = Settings.Secure.getString(requireContext().contentResolver, Settings.Secure.ANDROID_ID)
+
+        // Reference to the network status and pairing code text views
         networkStatusTextView = view.findViewById(R.id.network_status_text)
-
-        // Reference to the pairing code text view
         pairingCodeTextView = view.findViewById(R.id.pairing_code_text)
 
         // Initialize loading spinner
         loadingSpinner = view.findViewById(R.id.loading_spinner)
         loadingSpinner.visibility = View.VISIBLE
 
-        // Generate and display pairing code
-        pairingCode = generatePairingCode()
-        savePairingCodeToFirebase(pairingCode)
-        displayPairingCode(pairingCode)
-
-        // Listen for playlist assignment
-        listenForPlaylistAssignment(pairingCode)
+        // Fetch or generate pairing code
+        fetchOrGeneratePairingCode()
 
         // Load initial media content
         loadInitialMediaContent(view)
@@ -92,9 +96,32 @@ class MainFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
-        handler.removeCallbacksAndMessages(null) // Stop all pending callbacks
-        networkStatusHandler.removeCallbacks(networkStatusRunnable) // Stop periodic checks
-        database.removeEventListener(firebaseListener) // Remove Firebase listener
+        handler.removeCallbacksAndMessages(null)
+        networkStatusHandler.removeCallbacks(networkStatusRunnable)
+        if (::firebaseListener.isInitialized) {
+            mediaDatabase.removeEventListener(firebaseListener)
+        }
+        if (::assignmentListener.isInitialized) {
+            Firebase.database.reference.child("pairings").child(pairingCode).child("playlistId")
+                .removeEventListener(assignmentListener)
+        }
+    }
+
+    private fun fetchOrGeneratePairingCode() {
+        val deviceRef = devicesDatabase.child(deviceSerial)
+
+        // Check if pairing code already exists
+        deviceRef.child("pairingCode").get().addOnSuccessListener { snapshot ->
+            if (snapshot.exists()) {
+                pairingCode = snapshot.value as String
+                displayPairingCode(pairingCode)
+            } else {
+                pairingCode = generatePairingCode()
+                savePairingCodeToFirebase(pairingCode)
+            }
+        }.addOnFailureListener {
+            Log.e("Pairing", "Failed to fetch pairing code: ${it.message}")
+        }
     }
 
     private fun generatePairingCode(): String {
@@ -103,42 +130,30 @@ class MainFragment : Fragment() {
     }
 
     private fun savePairingCodeToFirebase(pairingCode: String) {
-        val databaseRef = Firebase.database.reference.child("pairings").child(pairingCode)
-        val deviceData = mapOf(
-            "deviceName" to "Living Room TV", // Replace with a dynamic name if needed
-            "playlistId" to null
+        val currentTime = System.currentTimeMillis() // Get current time for lastHeartBeat
+        val deviceData = hashMapOf(
+            "UUID" to deviceSerial,
+            "pairingCode" to pairingCode,
+            "deviceName" to (Build.MODEL ?: "Unknown Device"), // Replace with dynamic name if needed
+            "lastHeartBeat" to currentTime
         )
 
-        databaseRef.setValue(deviceData).addOnSuccessListener {
-            Log.d("Pairing", "Pairing code saved successfully.")
-        }.addOnFailureListener { error ->
-            Log.e("Pairing", "Failed to save pairing code: ${error.message}")
-        }
+        devicesDatabase.child(deviceSerial).setValue(deviceData)
+            .addOnSuccessListener {
+                Log.d("Pairing", "Pairing code saved successfully with updated structure.")
+                displayPairingCode(pairingCode)
+            }
+            .addOnFailureListener { error ->
+                Log.e("Pairing", "Failed to save pairing code: ${error.message}")
+            }
     }
 
     private fun displayPairingCode(pairingCode: String) {
         pairingCodeTextView.text = "Pairing Code: $pairingCode"
-    }
-
-    private fun listenForPlaylistAssignment(pairingCode: String) {
-        val databaseRef = Firebase.database.reference.child("pairings").child(pairingCode).child("playlistId")
-        databaseRef.addValueEventListener(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                val playlistId = snapshot.value as? String
-                if (playlistId != null) {
-                    Log.d("Pairing", "Playlist assigned: $playlistId")
-                    loadPlaylist(playlistId)
-                }
-            }
-
-            override fun onCancelled(error: DatabaseError) {
-                Log.e("Pairing", "Failed to listen for playlist: ${error.message}")
-            }
-        })
+        loadingSpinner.visibility = View.GONE
     }
 
     private fun loadPlaylist(playlistId: String) {
-        // Replace "media" with the Firebase node for playlists
         val playlistRef = Firebase.database.reference.child("playlists").child(playlistId)
         playlistRef.get().addOnSuccessListener { dataSnapshot ->
             val newMediaList = mutableListOf<MediaItem>()
@@ -155,12 +170,13 @@ class MainFragment : Fragment() {
             if (newMediaList.isNotEmpty()) {
                 mediaList = newMediaList
                 currentIndex = 0
-                displayMediaItem(requireView())
+                if (isAdded) displayMediaItem(requireView())
             }
         }.addOnFailureListener { error ->
             Log.e("Pairing", "Failed to load playlist: ${error.message}")
         }
     }
+
     private fun checkNetworkStatus() {
         val isOnline = requireContext().isNetworkAvailable()
         val status = if (isOnline) "Online" else "Offline"
@@ -172,7 +188,7 @@ class MainFragment : Fragment() {
 
     private fun Context.isNetworkAvailable(): Boolean {
         val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val network = connectivityManager.activeNetwork ?: return false
             val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -185,7 +201,7 @@ class MainFragment : Fragment() {
     private fun loadInitialMediaContent(view: View) {
         if (requireContext().isNetworkAvailable()) {
             // Online: Fetch from Firebase and cache to Room
-            database.get().addOnSuccessListener { dataSnapshot ->
+            mediaDatabase.get().addOnSuccessListener { dataSnapshot ->
                 mediaList.clear()
                 val newMediaList = mutableListOf<MediaItem>()
 
@@ -202,7 +218,6 @@ class MainFragment : Fragment() {
 
                 if (newMediaList.isNotEmpty()) {
                     mediaList.addAll(newMediaList)
-                    // Cache new items to Room
                     CoroutineScope(Dispatchers.IO).launch {
                         AppDatabase.getDatabase(requireContext()).mediaItemDao().clearAndInsert(newMediaList.map {
                             MediaItemEntity(it.url, it.type, it.duration)
@@ -220,7 +235,6 @@ class MainFragment : Fragment() {
                 loadingSpinner.visibility = View.GONE
             }
         } else {
-            // Offline: Load from Room
             CoroutineScope(Dispatchers.IO).launch {
                 val cachedItems = AppDatabase.getDatabase(requireContext()).mediaItemDao().getAllMediaItems()
                 mediaList = cachedItems.map { MediaItem(it.url, it.type, it.duration) }.toMutableList()
@@ -268,7 +282,7 @@ class MainFragment : Fragment() {
             }
         }
 
-        database.addValueEventListener(firebaseListener)
+        mediaDatabase.addValueEventListener(firebaseListener)
     }
 
     private fun displayMediaItem(view: View) {
@@ -302,7 +316,6 @@ class MainFragment : Fragment() {
                     handler.postDelayed({
                         currentIndex = (currentIndex + 1) % mediaList.size
                         if (currentIndex == 0) {
-                            // Update media list after a full rotation
                             mediaList = pendingMediaList.toMutableList()
                         }
                         displayMediaItem(view)
@@ -324,7 +337,6 @@ class MainFragment : Fragment() {
                     mediaVideoView.startAnimation(fadeOut)
                     currentIndex = (currentIndex + 1) % mediaList.size
                     if (currentIndex == 0) {
-                        // Update media list after a full rotation
                         mediaList = pendingMediaList.toMutableList()
                     }
                     displayMediaItem(view)
