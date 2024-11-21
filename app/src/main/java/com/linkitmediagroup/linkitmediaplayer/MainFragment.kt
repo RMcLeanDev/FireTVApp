@@ -108,21 +108,49 @@ class MainFragment : Fragment() {
     }
 
     private fun fetchOrGeneratePairingCode() {
-        val deviceRef = devicesDatabase.child(deviceSerial)
+        val sharedPreferences = requireContext().getSharedPreferences("device_prefs", Context.MODE_PRIVATE)
+        val savedPairingCode = sharedPreferences.getString("pairingCode", null)
 
-        // Check if pairing code already exists
-        deviceRef.child("pairingCode").get().addOnSuccessListener { snapshot ->
-            if (snapshot.exists()) {
-                pairingCode = snapshot.value as String
-                displayPairingCode(pairingCode)
-            } else {
+        if (savedPairingCode != null) {
+            // Use locally saved pairing code
+            pairingCode = savedPairingCode
+            Log.d("Pairing", "Loaded pairing code from SharedPreferences: $pairingCode")
+            displayPairingCode(pairingCode)
+        } else {
+            // Check Firebase for an existing pairing code
+            val deviceRef = devicesDatabase.child(deviceSerial)
+            deviceRef.child("pairingCode").get().addOnSuccessListener { snapshot ->
+                if (snapshot.exists()) {
+                    // Pairing code exists in Firebase
+                    pairingCode = snapshot.value as String
+                    Log.d("Pairing", "Loaded pairing code from Firebase: $pairingCode")
+                    savePairingCodeLocally(pairingCode)
+                    displayPairingCode(pairingCode)
+                } else {
+                    // Generate a new pairing code
+                    pairingCode = generatePairingCode()
+                    Log.d("Pairing", "Generated new pairing code: $pairingCode")
+                    savePairingCodeToFirebase(pairingCode)
+                    savePairingCodeLocally(pairingCode)
+                    displayPairingCode(pairingCode)
+                }
+            }.addOnFailureListener {
+                Log.e("Pairing", "Failed to fetch pairing code from Firebase: ${it.message}")
+                // Fallback: Generate a new pairing code
                 pairingCode = generatePairingCode()
                 savePairingCodeToFirebase(pairingCode)
+                savePairingCodeLocally(pairingCode)
+                displayPairingCode(pairingCode)
             }
-        }.addOnFailureListener {
-            Log.e("Pairing", "Failed to fetch pairing code: ${it.message}")
         }
     }
+
+    private fun savePairingCodeLocally(pairingCode: String) {
+        val sharedPreferences = requireContext().getSharedPreferences("device_prefs", Context.MODE_PRIVATE)
+        sharedPreferences.edit().putString("pairingCode", pairingCode).apply()
+        Log.d("Pairing", "Pairing code saved locally: $pairingCode")
+    }
+
 
     private fun generatePairingCode(): String {
         val allowedChars = ('A'..'Z') + ('0'..'9')
@@ -130,23 +158,22 @@ class MainFragment : Fragment() {
     }
 
     private fun savePairingCodeToFirebase(pairingCode: String) {
-        val currentTime = System.currentTimeMillis() // Get current time for lastHeartBeat
         val deviceData = hashMapOf(
             "UUID" to deviceSerial,
             "pairingCode" to pairingCode,
-            "deviceName" to (Build.MODEL ?: "Unknown Device"), // Replace with dynamic name if needed
-            "lastHeartBeat" to currentTime
+            "deviceName" to (Build.MODEL ?: "Unknown Device"),
+            "lastHeartBeat" to System.currentTimeMillis()
         )
 
         devicesDatabase.child(deviceSerial).setValue(deviceData)
             .addOnSuccessListener {
-                Log.d("Pairing", "Pairing code saved successfully with updated structure.")
-                displayPairingCode(pairingCode)
+                Log.d("Pairing", "Pairing code saved to Firebase: $pairingCode")
             }
             .addOnFailureListener { error ->
-                Log.e("Pairing", "Failed to save pairing code: ${error.message}")
+                Log.e("Pairing", "Failed to save pairing code to Firebase: ${error.message}")
             }
     }
+
 
     private fun displayPairingCode(pairingCode: String) {
         pairingCodeTextView.text = "Pairing Code: $pairingCode"
