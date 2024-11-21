@@ -30,22 +30,11 @@ class MainFragment : Fragment() {
 
     private lateinit var mediaDatabase: DatabaseReference
     private lateinit var devicesDatabase: DatabaseReference
-    private lateinit var firebaseListener: ValueEventListener
-    private lateinit var assignmentListener: ValueEventListener
+    private lateinit var pairingCodeListener: ValueEventListener
     private val handler = Handler(Looper.getMainLooper())
-    private val networkStatusHandler = Handler(Looper.getMainLooper())
     private lateinit var deviceSerial: String
-    private val networkStatusRunnable: Runnable = object : Runnable {
-        override fun run() {
-            checkNetworkStatus()
-            networkStatusHandler.postDelayed(this, 2000) // Check every 2 seconds
-        }
-    }
-
     private var currentIndex = 0
     private var mediaList = mutableListOf<MediaItem>()
-    private var pendingMediaList = mutableListOf<MediaItem>()
-    private var rotationInProgress = false
 
     private lateinit var networkStatusTextView: TextView
     private lateinit var loadingSpinner: ProgressBar
@@ -65,7 +54,8 @@ class MainFragment : Fragment() {
         devicesDatabase = Firebase.database.reference.child("devices")
 
         // Initialize device serial
-        deviceSerial = Settings.Secure.getString(requireContext().contentResolver, Settings.Secure.ANDROID_ID)
+        deviceSerial =
+            Settings.Secure.getString(requireContext().contentResolver, Settings.Secure.ANDROID_ID)
 
         // Reference to the network status and pairing code text views
         networkStatusTextView = view.findViewById(R.id.network_status_text)
@@ -76,81 +66,86 @@ class MainFragment : Fragment() {
         loadingSpinner.visibility = View.VISIBLE
 
         // Fetch or generate pairing code
-        fetchOrGeneratePairingCode()
-
-        // Load initial media content
-        loadInitialMediaContent(view)
+        fetchOrGeneratePairingCode(view)
 
         return view
-    }
-
-    override fun onResume() {
-        super.onResume()
-        networkStatusHandler.post(networkStatusRunnable) // Start periodic network checks
-    }
-
-    override fun onPause() {
-        super.onPause()
-        networkStatusHandler.removeCallbacks(networkStatusRunnable) // Stop periodic checks
     }
 
     override fun onDestroyView() {
         super.onDestroyView()
         handler.removeCallbacksAndMessages(null)
-        networkStatusHandler.removeCallbacks(networkStatusRunnable)
-        if (::firebaseListener.isInitialized) {
-            mediaDatabase.removeEventListener(firebaseListener)
-        }
-        if (::assignmentListener.isInitialized) {
-            Firebase.database.reference.child("pairings").child(pairingCode).child("playlistId")
-                .removeEventListener(assignmentListener)
+        if (::pairingCodeListener.isInitialized) {
+            Firebase.database.reference.child("pairings").child(pairingCode)
+                .removeEventListener(pairingCodeListener)
         }
     }
 
-    private fun fetchOrGeneratePairingCode() {
-        val sharedPreferences = requireContext().getSharedPreferences("device_prefs", Context.MODE_PRIVATE)
+    private fun fetchOrGeneratePairingCode(view: View) {
+        val sharedPreferences =
+            requireContext().getSharedPreferences("device_prefs", Context.MODE_PRIVATE)
         val savedPairingCode = sharedPreferences.getString("pairingCode", null)
 
         if (savedPairingCode != null) {
-            // Use locally saved pairing code
             pairingCode = savedPairingCode
             Log.d("Pairing", "Loaded pairing code from SharedPreferences: $pairingCode")
             displayPairingCode(pairingCode)
+            listenForPairingCodeChanges(pairingCode, view)
         } else {
-            // Check Firebase for an existing pairing code
             val deviceRef = devicesDatabase.child(deviceSerial)
             deviceRef.child("pairingCode").get().addOnSuccessListener { snapshot ->
                 if (snapshot.exists()) {
-                    // Pairing code exists in Firebase
                     pairingCode = snapshot.value as String
                     Log.d("Pairing", "Loaded pairing code from Firebase: $pairingCode")
                     savePairingCodeLocally(pairingCode)
                     displayPairingCode(pairingCode)
+                    listenForPairingCodeChanges(pairingCode, view)
                 } else {
-                    // Generate a new pairing code
                     pairingCode = generatePairingCode()
-                    Log.d("Pairing", "Generated new pairing code: $pairingCode")
                     savePairingCodeToFirebase(pairingCode)
                     savePairingCodeLocally(pairingCode)
                     displayPairingCode(pairingCode)
+                    listenForPairingCodeChanges(pairingCode, view)
                 }
             }.addOnFailureListener {
-                Log.e("Pairing", "Failed to fetch pairing code from Firebase: ${it.message}")
-                // Fallback: Generate a new pairing code
                 pairingCode = generatePairingCode()
                 savePairingCodeToFirebase(pairingCode)
                 savePairingCodeLocally(pairingCode)
                 displayPairingCode(pairingCode)
+                listenForPairingCodeChanges(pairingCode, view)
             }
         }
     }
 
+    private fun listenForPairingCodeChanges(pairingCode: String, view: View) {
+        val pairingRef = Firebase.database.reference.child("pairings").child(pairingCode)
+        pairingCodeListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                if (snapshot.exists()) {
+                    val playlistId = snapshot.child("playlistId").value as? String
+                    if (playlistId != null) {
+                        Log.d("Pairing", "Playlist ID updated: $playlistId")
+                        loadPlaylist(playlistId, view)
+                    } else {
+                        Log.d("Pairing", "No playlist assigned yet.")
+                    }
+                } else {
+                    Log.d("Pairing", "Pairing code not found in Firebase.")
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e("Firebase", "Failed to listen for pairing code changes: ${error.message}")
+            }
+        }
+        pairingRef.addValueEventListener(pairingCodeListener)
+    }
+
     private fun savePairingCodeLocally(pairingCode: String) {
-        val sharedPreferences = requireContext().getSharedPreferences("device_prefs", Context.MODE_PRIVATE)
+        val sharedPreferences =
+            requireContext().getSharedPreferences("device_prefs", Context.MODE_PRIVATE)
         sharedPreferences.edit().putString("pairingCode", pairingCode).apply()
         Log.d("Pairing", "Pairing code saved locally: $pairingCode")
     }
-
 
     private fun generatePairingCode(): String {
         val allowedChars = ('A'..'Z') + ('0'..'9')
@@ -174,13 +169,12 @@ class MainFragment : Fragment() {
             }
     }
 
-
     private fun displayPairingCode(pairingCode: String) {
         pairingCodeTextView.text = "Pairing Code: $pairingCode"
         loadingSpinner.visibility = View.GONE
     }
 
-    private fun loadPlaylist(playlistId: String) {
+    private fun loadPlaylist(playlistId: String, view: View) {
         val playlistRef = Firebase.database.reference.child("playlists").child(playlistId)
         playlistRef.get().addOnSuccessListener { dataSnapshot ->
             val newMediaList = mutableListOf<MediaItem>()
@@ -188,7 +182,6 @@ class MainFragment : Fragment() {
                 val url = snapshot.child("url").value as? String
                 val type = snapshot.child("type").value as? String
                 val duration = snapshot.child("duration").value as? Long ?: 3000L
-
                 if (url != null && type != null) {
                     newMediaList.add(MediaItem(url, type, duration))
                 }
@@ -197,175 +190,46 @@ class MainFragment : Fragment() {
             if (newMediaList.isNotEmpty()) {
                 mediaList = newMediaList
                 currentIndex = 0
-                if (isAdded) displayMediaItem(requireView())
+                if (isAdded) displayMediaItem(view)
             }
         }.addOnFailureListener { error ->
-            Log.e("Pairing", "Failed to load playlist: ${error.message}")
+            Log.e("Playlist", "Failed to load playlist: ${error.message}")
         }
-    }
-
-    private fun checkNetworkStatus() {
-        val isOnline = requireContext().isNetworkAvailable()
-        val status = if (isOnline) "Online" else "Offline"
-        if (networkStatusTextView.text != status) {
-            networkStatusTextView.text = status
-            Log.d("MainFragment", "Network status updated to: $status")
-        }
-    }
-
-    private fun Context.isNetworkAvailable(): Boolean {
-        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val network = connectivityManager.activeNetwork ?: return false
-            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        } else {
-            val networkInfo = connectivityManager.activeNetworkInfo
-            networkInfo != null && networkInfo.isConnected
-        }
-    }
-
-    private fun loadInitialMediaContent(view: View) {
-        if (requireContext().isNetworkAvailable()) {
-            // Online: Fetch from Firebase and cache to Room
-            mediaDatabase.get().addOnSuccessListener { dataSnapshot ->
-                mediaList.clear()
-                val newMediaList = mutableListOf<MediaItem>()
-
-                dataSnapshot.children.forEach { snapshot ->
-                    val url = snapshot.child("url").value as? String
-                    val type = snapshot.child("type").value as? String
-                    val duration = snapshot.child("duration").value as? Long ?: 3000L
-
-                    if (url != null && type != null) {
-                        val mediaItem = MediaItem(url, type, duration)
-                        newMediaList.add(mediaItem)
-                    }
-                }
-
-                if (newMediaList.isNotEmpty()) {
-                    mediaList.addAll(newMediaList)
-                    CoroutineScope(Dispatchers.IO).launch {
-                        AppDatabase.getDatabase(requireContext()).mediaItemDao().clearAndInsert(newMediaList.map {
-                            MediaItemEntity(it.url, it.type, it.duration)
-                        })
-                    }
-                }
-
-                if (mediaList.isNotEmpty()) displayMediaItem(view)
-                setupMediaListener(view)
-                loadingSpinner.visibility = View.GONE
-
-            }.addOnFailureListener {
-                val mediaTextView = view.findViewById<TextView>(R.id.media_text)
-                mediaTextView?.text = getString(R.string.failed_to_load_media)
-                loadingSpinner.visibility = View.GONE
-            }
-        } else {
-            CoroutineScope(Dispatchers.IO).launch {
-                val cachedItems = AppDatabase.getDatabase(requireContext()).mediaItemDao().getAllMediaItems()
-                mediaList = cachedItems.map { MediaItem(it.url, it.type, it.duration) }.toMutableList()
-                if (mediaList.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        displayMediaItem(view)
-                        loadingSpinner.visibility = View.GONE
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        val mediaTextView = view.findViewById<TextView>(R.id.media_text)
-                        mediaTextView?.text = getString(R.string.failed_to_load_media)
-                        loadingSpinner.visibility = View.GONE
-                    }
-                }
-            }
-        }
-    }
-
-    private fun setupMediaListener(view: View) {
-        firebaseListener = object : ValueEventListener {
-            override fun onDataChange(dataSnapshot: DataSnapshot) {
-                pendingMediaList.clear()
-
-                dataSnapshot.children.forEach { snapshot ->
-                    val url = snapshot.child("url").value as? String
-                    val type = snapshot.child("type").value as? String
-                    val duration = snapshot.child("duration").value as? Long ?: 3000L
-
-                    if (url != null && type != null) {
-                        pendingMediaList.add(MediaItem(url, type, duration))
-                    }
-                }
-
-                if (!rotationInProgress) {
-                    mediaList = pendingMediaList.toMutableList()
-                    currentIndex = 0
-                    displayMediaItem(view)
-                }
-            }
-
-            override fun onCancelled(error: DatabaseError) {
-                val mediaTextView = view.findViewById<TextView>(R.id.media_text)
-                mediaTextView?.text = getString(R.string.failed_to_load_media)
-            }
-        }
-
-        mediaDatabase.addValueEventListener(firebaseListener)
     }
 
     private fun displayMediaItem(view: View) {
         if (mediaList.isEmpty()) return  // Exit if there are no items to display
 
-        rotationInProgress = true
         val mediaItem = mediaList[currentIndex]
-        val mediaTextView = view.findViewById<TextView>(R.id.media_text)
         val mediaImageView = view.findViewById<ImageView>(R.id.media_image)
         val mediaVideoView = view.findViewById<VideoView>(R.id.media_video)
-
-        // Load animations
-        val fadeIn = android.view.animation.AnimationUtils.loadAnimation(context, R.anim.fade_in)
-        val fadeOut = android.view.animation.AnimationUtils.loadAnimation(context, R.anim.fade_out)
 
         when (mediaItem.type) {
             "image" -> {
                 mediaVideoView.visibility = View.GONE
                 mediaImageView.visibility = View.VISIBLE
-                mediaTextView.visibility = View.GONE
-
-                mediaImageView.startAnimation(fadeIn)
 
                 Glide.with(this)
                     .load(mediaItem.url)
                     .error(R.drawable.error_placeholder)
                     .into(mediaImageView)
 
+                // Ensure the delay matches the media item duration
                 handler.postDelayed({
-                    mediaImageView.startAnimation(fadeOut)
-                    handler.postDelayed({
-                        currentIndex = (currentIndex + 1) % mediaList.size
-                        if (currentIndex == 0) {
-                            mediaList = pendingMediaList.toMutableList()
-                        }
-                        displayMediaItem(view)
-                    }, fadeOut.duration)
+                    currentIndex = (currentIndex + 1) % mediaList.size
+                    displayMediaItem(view)
                 }, mediaItem.duration)
             }
+
             "video" -> {
                 mediaImageView.visibility = View.GONE
                 mediaVideoView.visibility = View.VISIBLE
-                mediaTextView.visibility = View.GONE
-
                 mediaVideoView.setVideoPath(mediaItem.url)
                 mediaVideoView.setOnPreparedListener {
                     mediaVideoView.start()
-                    mediaVideoView.startAnimation(fadeIn)
                 }
-
                 mediaVideoView.setOnCompletionListener {
-                    mediaVideoView.startAnimation(fadeOut)
                     currentIndex = (currentIndex + 1) % mediaList.size
-                    if (currentIndex == 0) {
-                        mediaList = pendingMediaList.toMutableList()
-                    }
                     displayMediaItem(view)
                 }
             }
