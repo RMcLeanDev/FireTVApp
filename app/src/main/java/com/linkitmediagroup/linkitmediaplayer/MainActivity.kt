@@ -8,7 +8,7 @@ import com.google.firebase.database.ktx.database
 import com.google.firebase.ktx.initialize
 
 /**
- * Loads [MainFragment].
+ * Loads [PermissionInfoFragment] initially and transitions to [MainFragment].
  */
 class MainActivity : FragmentActivity() {
 
@@ -24,8 +24,9 @@ class MainActivity : FragmentActivity() {
         setContentView(R.layout.activity_main)
 
         if (savedInstanceState == null) {
+            // Load PermissionInfoFragment as the initial screen
             supportFragmentManager.beginTransaction()
-                .replace(R.id.main_browse_fragment, MainFragment())
+                .replace(R.id.fragment_container, PermissionInfoFragment())
                 .commitNow()
         }
     }
