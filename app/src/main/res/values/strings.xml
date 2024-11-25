@@ -15,6 +15,15 @@
     <string name="failed_to_load_media">Failed to load media.</string>
     <string name="unsupported_media_type">Unsupported media type</string>
     <string name="no_media_available">Cannot find media…</string>
+    <string name="permission_info">
+    To ensure a smooth and secure experience, we require access to your device\'s information.
+    This helps us generate a unique pairing code, enabling easy connection and seamless playlist display.
+    Your data is handled with the utmost care and is never shared with third parties.</string>
+    <string name="permission_title">Seamless Device Pairing</string>
+    <string name="grant_permission_button_text">Grant Permission</string>
+
+
+
 
     <!-- Error messages -->
     <string name="error_fragment_message">An error occurred</string>

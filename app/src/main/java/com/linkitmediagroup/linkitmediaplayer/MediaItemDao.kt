@@ -8,16 +8,20 @@ import androidx.room.Query
 @Dao
 interface MediaItemDao {
 
+    // Fetch all media items from the database
     @Query("SELECT * FROM media_items")
-    fun getAllMediaItems(): List<MediaItemEntity> // Return List<MediaItemEntity> for Room compatibility
+    fun getAllMediaItems(): List<MediaItemEntity>
 
+    // Insert a list of media items into the database (replace on conflict)
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    fun insertAll(mediaItems: List<MediaItemEntity>) // Adjust parameter type to List<MediaItemEntity>
+    fun insertAll(mediaItems: List<MediaItemEntity>)
 
+    // Clear all media items from the database
     @Query("DELETE FROM media_items")
-    fun clearMediaItems() // Ensure this method is void or returns Int (number of rows affected)
+    fun clearMediaItems()
 
-    @Query("DELETE FROM media_items") // Use clearMediaItems in combination with insertAll for clearAndInsert
+    // Clear existing media items and insert new ones
+    @androidx.room.Transaction // Ensures this operation runs atomically
     fun clearAndInsert(mediaItems: List<MediaItemEntity>) {
         clearMediaItems()
         insertAll(mediaItems)

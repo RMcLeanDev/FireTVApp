@@ -1,0 +1,45 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:layout_gravity="center">
+
+        <TextView
+            android:id="@+id/permission_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Seamless Device Pairing"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/white"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/info_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="To ensure a smooth and secure experience, we require access to your device's information. This helps us generate a unique pairing code, enabling easy connection and seamless playlist display. Your data is handled with the utmost care and is never shared with third parties."
+            android:textSize="16sp"
+            android:textColor="@android:color/white"
+            android:gravity="center"
+            android:layout_marginBottom="32dp" />
+
+        <Button
+            android:id="@+id/grant_permission_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Grant Permission"
+            android:padding="12dp"
+            android:textSize="18sp"
+            android:backgroundTint="@android:color/holo_blue_light"
+            android:textColor="@android:color/white" />
+
+    </LinearLayout>
+</FrameLayout>
