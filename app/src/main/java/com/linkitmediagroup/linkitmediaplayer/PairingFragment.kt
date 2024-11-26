@@ -17,10 +17,11 @@ import com.linkitmediagroup.linkitmediaplayer.AppConstants
 class PairingFragment : Fragment() {
 
     private lateinit var pairingCodeTextView: TextView
-    private lateinit var devicesDatabase: DatabaseReference
+    private lateinit var screensDatabase: DatabaseReference
     private lateinit var pairingCode: String
     private lateinit var deviceSerial: String
-
+    val LOG_TAG = AppConstants.LOG_TAG
+    
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
@@ -28,7 +29,7 @@ class PairingFragment : Fragment() {
         val view = inflater.inflate(R.layout.fragment_pairing, container, false)
 
         pairingCodeTextView = view.findViewById(R.id.pairing_code_text)
-        devicesDatabase = Firebase.database.reference.child("devices")
+        screensDatabase = Firebase.database.reference.child("screens")
 
         // Initialize the device serial
         deviceSerial = getDeviceSerial()
@@ -59,29 +60,60 @@ class PairingFragment : Fragment() {
     }
 
     private fun fetchOrGeneratePairingCode() {
-        val deviceRef = devicesDatabase.child(deviceSerial)
+        val deviceRef = screensDatabase.child(deviceSerial)
 
-        deviceRef.child("pairingCode").get().addOnSuccessListener { snapshot ->
+        deviceRef.get().addOnSuccessListener { snapshot ->
             if (snapshot.exists()) {
-                pairingCode = snapshot.value as String
-                Log.d(AppConstants.LOG_TAG, "Pairing code fetched: $pairingCode")
+                pairingCode = snapshot.child("pairingCode").value as String
+                Log.i(LOG_TAG, "Pairing code retrieved: $pairingCode")
             } else {
                 pairingCode = generatePairingCode()
-                Log.d(AppConstants.LOG_TAG, "Generated new pairing code: $pairingCode")
-                deviceRef.child("pairingCode").setValue(pairingCode)
+                Log.i(LOG_TAG, "Generated new pairing code: $pairingCode")
+
+                // Save the new pairing code along with the updated structure
+                val deviceData = mapOf(
+                    "uuid" to deviceSerial,
+                    "pairingCode" to pairingCode,
+                    "lastHeartbeat" to System.currentTimeMillis(),
+                    "creationDate" to getCurrentDate(),
+                    "status" to "offline" // Default to offline until first heartbeat
+                )
+                deviceRef.setValue(deviceData).addOnSuccessListener {
+                    Log.i(LOG_TAG, "Device data saved successfully")
+                }.addOnFailureListener { error ->
+                    Log.e(LOG_TAG, "Failed to save device data: ${error.message}")
+                }
             }
             displayPairingCode(pairingCode)
-        }.addOnFailureListener { e ->
-            Log.e(AppConstants.LOG_TAG, "Failed to fetch pairing code: ${e.message}")
+        }.addOnFailureListener { error ->
+            Log.e(LOG_TAG, "Failed to fetch device data: ${error.message}")
             pairingCode = generatePairingCode()
-            deviceRef.child("pairingCode").setValue(pairingCode)
+
+            // Save the new pairing code along with the updated structure
+            val deviceData = mapOf(
+                "uuid" to deviceSerial,
+                "pairingCode" to pairingCode,
+                "lastHeartbeat" to System.currentTimeMillis(),
+                "creationDate" to getCurrentDate(),
+                "status" to "offline"
+            )
+            deviceRef.setValue(deviceData).addOnSuccessListener {
+                Log.i(LOG_TAG, "Device data saved successfully after failure")
+            }.addOnFailureListener { saveError ->
+                Log.e(LOG_TAG, "Failed to save device data after error: ${saveError.message}")
+            }
             displayPairingCode(pairingCode)
         }
     }
 
+    private fun getCurrentDate(): String {
+        val sdf = java.text.SimpleDateFormat("MM-dd-yyyy", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date())
+    }
+
     private fun displayPairingCode(code: String) {
-        Log.d(AppConstants.LOG_TAG, "Displaying pairing code: $code")
         pairingCodeTextView.text = "Pairing Code: $code"
+        Log.i(LOG_TAG, "Displaying pairing code: $code")
     }
 
     private fun generatePairingCode(): String {
