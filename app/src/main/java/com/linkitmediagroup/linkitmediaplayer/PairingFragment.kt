@@ -12,6 +12,9 @@ import com.google.firebase.database.ktx.database
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import android.widget.ProgressBar
+import android.os.Handler
+import android.os.Looper
 import com.linkitmediagroup.linkitmediaplayer.AppConstants
 
 class PairingFragment : Fragment() {
@@ -20,22 +23,32 @@ class PairingFragment : Fragment() {
     private lateinit var screensDatabase: DatabaseReference
     private lateinit var pairingCode: String
     private lateinit var deviceSerial: String
+    private lateinit var pairingListener: ValueEventListener
+    private lateinit var loadingSpinner: ProgressBar
     val LOG_TAG = AppConstants.LOG_TAG
-    
+
+    companion object {
+        const val SCREENS_PATH = "screens"
+        const val FIELD_PAIRED = "paired"
+        const val FIELD_PLAYLIST = "currentPlaylistAssigned"
+        const val FIELD_PAIRING_CODE = "pairingCode"
+        const val FIELD_UUID = "uuid"
+        const val FIELD_LAST_HEARTBEAT = "lastHeartbeat"
+        const val FIELD_CREATION_DATE = "creationDate"
+        const val FIELD_STATUS = "status"
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? {
         val view = inflater.inflate(R.layout.fragment_pairing, container, false)
-
         pairingCodeTextView = view.findViewById(R.id.pairing_code_text)
-        screensDatabase = Firebase.database.reference.child("screens")
-
-        // Initialize the device serial
+        screensDatabase = Firebase.database.reference.child(SCREENS_PATH)
         deviceSerial = getDeviceSerial()
 
-        // Fetch or generate pairing code
         fetchOrGeneratePairingCode()
+        listenForPairingUpdates()
 
         return view
     }
@@ -64,22 +77,24 @@ class PairingFragment : Fragment() {
 
         deviceRef.get().addOnSuccessListener { snapshot ->
             if (snapshot.exists()) {
-                pairingCode = snapshot.child("pairingCode").value as String
-                Log.i(LOG_TAG, "Pairing code retrieved: $pairingCode")
+                pairingCode = snapshot.child(FIELD_PAIRING_CODE).value as String
             } else {
                 pairingCode = generatePairingCode()
                 Log.i(LOG_TAG, "Generated new pairing code: $pairingCode")
 
-                // Save the new pairing code along with the updated structure
                 val deviceData = mapOf(
-                    "uuid" to deviceSerial,
-                    "pairingCode" to pairingCode,
-                    "lastHeartbeat" to System.currentTimeMillis(),
-                    "creationDate" to getCurrentDate(),
-                    "status" to "offline" // Default to offline until first heartbeat
+                    FIELD_UUID to deviceSerial,
+                    FIELD_PAIRING_CODE to pairingCode,
+                    FIELD_LAST_HEARTBEAT to System.currentTimeMillis(),
+                    FIELD_CREATION_DATE to getCurrentDate(),
+                    FIELD_STATUS to "offline",
+                    FIELD_PAIRED to false
                 )
                 deviceRef.setValue(deviceData).addOnSuccessListener {
                     Log.i(LOG_TAG, "Device data saved successfully")
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        listenForPairingUpdates()
+                    }, 300)
                 }.addOnFailureListener { error ->
                     Log.e(LOG_TAG, "Failed to save device data: ${error.message}")
                 }
@@ -87,23 +102,53 @@ class PairingFragment : Fragment() {
             displayPairingCode(pairingCode)
         }.addOnFailureListener { error ->
             Log.e(LOG_TAG, "Failed to fetch device data: ${error.message}")
-            pairingCode = generatePairingCode()
-
-            // Save the new pairing code along with the updated structure
-            val deviceData = mapOf(
-                "uuid" to deviceSerial,
-                "pairingCode" to pairingCode,
-                "lastHeartbeat" to System.currentTimeMillis(),
-                "creationDate" to getCurrentDate(),
-                "status" to "offline"
-            )
-            deviceRef.setValue(deviceData).addOnSuccessListener {
-                Log.i(LOG_TAG, "Device data saved successfully after failure")
-            }.addOnFailureListener { saveError ->
-                Log.e(LOG_TAG, "Failed to save device data after error: ${saveError.message}")
-            }
-            displayPairingCode(pairingCode)
+            pairingCodeTextView.text = "Error: Unable to retrieve pairing code."
         }
+    }
+
+    private fun listenForPairingUpdates() {
+        val deviceRef = screensDatabase.child(deviceSerial)
+
+        pairingListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                if (snapshot.exists()) {
+                    val pairingCodeFromFirebase = snapshot.child(FIELD_PAIRING_CODE).value as? String
+                    if (!pairingCodeFromFirebase.isNullOrEmpty() && pairingCodeTextView.text.isNullOrEmpty()) {
+                        displayPairingCode(pairingCodeFromFirebase)
+                    }
+
+                    val paired = snapshot.child(FIELD_PAIRED).value as? Boolean ?: false
+                    val playlistId = snapshot.child(FIELD_PLAYLIST).value as? String
+
+                    when {
+                        paired && playlistId != null -> {
+                            Log.i(LOG_TAG, "Screen is paired and playlist is assigned. Navigating to MainFragment.")
+                            pairingCodeTextView.text = "Loading playlist..."
+                            navigateToMainFragment()
+                        }
+                        paired -> {
+                            pairingCodeTextView.text = "Waiting for playlist assignment..."
+                            Log.i(LOG_TAG, "Screen is paired but no playlist assigned.")
+                        }
+                    }
+                } else {
+                    Log.e(LOG_TAG, "Snapshot does not exist for device serial.")
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e(LOG_TAG, "Failed to listen for pairing updates: ${error.message}")
+                pairingCodeTextView.text = "Error: Unable to fetch pairing updates."
+            }
+        }
+        deviceRef.addValueEventListener(pairingListener)
+    }
+
+
+    private fun navigateToMainFragment() {
+        requireActivity().supportFragmentManager.beginTransaction()
+            .replace(R.id.fragment_container, MainFragment())
+            .commitNow()
     }
 
     private fun getCurrentDate(): String {
@@ -117,7 +162,12 @@ class PairingFragment : Fragment() {
     }
 
     private fun generatePairingCode(): String {
-        val allowedChars = ('A'..'Z') + ('0'..'9')
+        val allowedChars = ('A'..'Z') + ('1'..'9')
         return (1..8).map { allowedChars.random() }.joinToString("")
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        screensDatabase.child(deviceSerial).removeEventListener(pairingListener)
     }
 }
