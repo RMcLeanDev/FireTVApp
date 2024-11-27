@@ -19,7 +19,6 @@ import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.database.ktx.database
-import android.os.Build
 
 class MainFragment : Fragment() {
 
@@ -59,18 +58,17 @@ class MainFragment : Fragment() {
 
         // Fetch and display playlist
         fetchAndDisplayPlaylist()
-        listenForScreenRemoval()
 
         return view
     }
 
     private fun getDeviceSerial(): String {
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Build.getSerial() // No need for android.os. qualifier
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                android.os.Build.getSerial()
             } else {
                 @Suppress("DEPRECATION")
-                Build.SERIAL // No need for android.os. qualifier
+                android.os.Build.SERIAL
             }
         } catch (e: SecurityException) {
             Log.e(LOG_TAG, "Permission denied for serial: ${e.message}")
@@ -80,7 +78,6 @@ class MainFragment : Fragment() {
             android.provider.Settings.Secure.getString(requireContext().contentResolver, android.provider.Settings.Secure.ANDROID_ID)
         }
     }
-
 
     private fun fetchAndDisplayPlaylist() {
         loadingSpinner.visibility = View.VISIBLE
@@ -106,38 +103,16 @@ class MainFragment : Fragment() {
         })
     }
 
-    private fun listenForScreenRemoval() {
-        val screenRef = screensDatabase.child(deviceSerial)
-
-        screenRef.addValueEventListener(object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                if (!snapshot.exists() || !(snapshot.child("paired").value as? Boolean ?: false)) {
-                    // Screen has been unpaired or removed
-                    Log.i(LOG_TAG, "Screen unpaired or removed. Navigating to PairingFragment.")
-                    navigateToPairingFragment()
-                }
-            }
-
-            override fun onCancelled(error: DatabaseError) {
-                Log.e(LOG_TAG, "Failed to listen for screen removal: ${error.message}")
-            }
-        })
-    }
-
-    private fun navigateToPairingFragment() {
-        requireActivity().supportFragmentManager.beginTransaction()
-            .replace(R.id.fragment_container, PairingFragment())
-            .commitNow()
-    }
-
     private fun fetchPlaylistItems(playlistId: String) {
         playlistsDatabase.child(playlistId).child("items").addListenerForSingleValueEvent(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val newMediaList = mutableListOf<MediaItem>()
-                snapshot.children.forEach {
-                    val url = it.child("url").value as? String
-                    val type = it.child("type").value as? String
-                    val duration = it.child("duration").value as? Long ?: 3000L
+
+                // Iterate over the numeric keys in the items array
+                snapshot.children.forEach { itemSnapshot ->
+                    val url = itemSnapshot.child("url").value as? String
+                    val type = itemSnapshot.child("type").value as? String
+                    val duration = itemSnapshot.child("duration").value as? Long ?: 3000L
                     if (url != null && type != null) {
                         newMediaList.add(MediaItem(url, type, duration))
                     }
