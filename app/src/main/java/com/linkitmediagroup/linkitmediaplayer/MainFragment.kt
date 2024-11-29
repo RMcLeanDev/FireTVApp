@@ -30,9 +30,11 @@ class MainFragment : Fragment() {
     private var mediaList = mutableListOf<MediaItem>()
     private var rotationInProgress = false
     private lateinit var loadingSpinner: ProgressBar
+    private var currentPlaylistId: String? = null
     private lateinit var mediaTextView: TextView
     private lateinit var mediaImageView: ImageView
     private lateinit var mediaVideoView: VideoView
+    private var isPlaylistUpdatePending = false
     val LOG_TAG = AppConstants.LOG_TAG
 
     data class MediaItem(val url: String, val type: String, val duration: Long = 3000L)
@@ -55,6 +57,9 @@ class MainFragment : Fragment() {
 
         // Fetch device serial number
         deviceSerial = getDeviceSerial()
+
+        // Listen for playlist updates
+        checkForPlaylistUpdates()
 
         // Fetch and display playlist
         fetchAndDisplayPlaylist()
@@ -82,7 +87,6 @@ class MainFragment : Fragment() {
     private fun fetchAndDisplayPlaylist() {
         loadingSpinner.visibility = View.VISIBLE
 
-        // Fetch the playlist ID from the screens node
         val screenRef = screensDatabase.child(deviceSerial)
         screenRef.child("currentPlaylistAssigned").addListenerForSingleValueEvent(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
@@ -93,6 +97,8 @@ class MainFragment : Fragment() {
                     return
                 }
                 Log.i(LOG_TAG, "Fetching playlist with ID: $playlistId")
+                currentPlaylistId = playlistId
+                checkForPlaylistUpdates() // Start listening for updates
                 fetchPlaylistItems(playlistId)
             }
 
@@ -108,7 +114,6 @@ class MainFragment : Fragment() {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val newMediaList = mutableListOf<MediaItem>()
 
-                // Iterate over the numeric keys in the items array
                 snapshot.children.forEach { itemSnapshot ->
                     val url = itemSnapshot.child("url").value as? String
                     val type = itemSnapshot.child("type").value as? String
@@ -119,20 +124,38 @@ class MainFragment : Fragment() {
                 }
 
                 if (newMediaList.isNotEmpty()) {
+                    Log.i(LOG_TAG, "Playlist items updated.")
                     mediaList = newMediaList
-                    currentIndex = 0
-                    displayMediaItem()
+                    currentIndex = 0 // Reset to the beginning of the playlist
+                    displayMediaItem() // Start displaying updated playlist
                 } else {
                     Log.i(LOG_TAG, "Playlist is empty.")
                     showPlaceholder("Playlist is empty.")
                 }
+                isPlaylistUpdatePending = false // Reset pending update flag
                 loadingSpinner.visibility = View.GONE
             }
 
             override fun onCancelled(error: DatabaseError) {
                 Log.e(LOG_TAG, "Failed to fetch playlist items: ${error.message}")
                 showPlaceholder("Error fetching playlist items.")
+                isPlaylistUpdatePending = false // Reset pending update flag
                 loadingSpinner.visibility = View.GONE
+            }
+        })
+    }
+
+    private fun checkForPlaylistUpdates() {
+        if (currentPlaylistId.isNullOrEmpty()) return
+
+        playlistsDatabase.child(currentPlaylistId!!).child("items").addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                Log.i(LOG_TAG, "Detected an update in playlist items. Marking update as pending.")
+                isPlaylistUpdatePending = true
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e(LOG_TAG, "Failed to listen for playlist updates: ${error.message}")
             }
         })
     }
@@ -159,8 +182,19 @@ class MainFragment : Fragment() {
 
                 handler.postDelayed({
                     rotationInProgress = false
-                    currentIndex = (currentIndex + 1) % mediaList.size
-                    displayMediaItem()
+
+                    // Check if this is the last item in the playlist
+                    if (currentIndex == mediaList.size - 1) {
+                        if (isPlaylistUpdatePending) {
+                            fetchPlaylistItems(currentPlaylistId!!)
+                        } else {
+                            currentIndex = 0 // Restart playlist
+                            displayMediaItem()
+                        }
+                    } else {
+                        currentIndex++
+                        displayMediaItem()
+                    }
                 }, mediaItem.duration)
             }
             "video" -> {
@@ -170,12 +204,24 @@ class MainFragment : Fragment() {
                 mediaVideoView.setOnPreparedListener { mediaVideoView.start() }
                 mediaVideoView.setOnCompletionListener {
                     rotationInProgress = false
-                    currentIndex = (currentIndex + 1) % mediaList.size
-                    displayMediaItem()
+
+                    // Check if this is the last item in the playlist
+                    if (currentIndex == mediaList.size - 1) {
+                        if (isPlaylistUpdatePending) {
+                            fetchPlaylistItems(currentPlaylistId!!)
+                        } else {
+                            currentIndex = 0 // Restart playlist
+                            displayMediaItem()
+                        }
+                    } else {
+                        currentIndex++
+                        displayMediaItem()
+                    }
                 }
             }
         }
     }
+
 
     private fun showPlaceholder(message: String) {
         mediaImageView.visibility = View.GONE
