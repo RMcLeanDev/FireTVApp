@@ -170,19 +170,39 @@ class MainFragment : Fragment() {
     }
 
     private fun checkForPlaylistUpdates() {
-        if (currentPlaylistId.isNullOrEmpty()) return
+        val screenRef = screensDatabase.child(deviceSerial)
 
-        playlistsDatabase.child(currentPlaylistId!!).child("items").addValueEventListener(object : ValueEventListener {
+        // Listen for changes to the assigned playlist ID
+        screenRef.child("currentPlaylistAssigned").addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                Log.i(LOG_TAG, "Detected an update in playlist items. Marking update as pending.")
-                isPlaylistUpdatePending = true
+                val newPlaylistId = snapshot.getValue(String::class.java)
+                if (!newPlaylistId.isNullOrEmpty() && newPlaylistId != currentPlaylistId) {
+                    Log.i(LOG_TAG, "Detected a playlist ID change. Fetching new playlist.")
+                    currentPlaylistId = newPlaylistId // Update current playlist ID
+                    fetchPlaylistItems(newPlaylistId) // Fetch new playlist items immediately
+                }
             }
 
             override fun onCancelled(error: DatabaseError) {
-                Log.e(LOG_TAG, "Failed to listen for playlist updates: ${error.message}")
+                Log.e(LOG_TAG, "Failed to listen for playlist ID updates: ${error.message}")
             }
         })
+
+        // Listen for changes to the items in the current playlist
+        if (!currentPlaylistId.isNullOrEmpty()) {
+            playlistsDatabase.child(currentPlaylistId!!).child("items").addValueEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    Log.i(LOG_TAG, "Detected an update in playlist items. Marking update as pending.")
+                    isPlaylistUpdatePending = true // Mark the playlist as needing an update
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.e(LOG_TAG, "Failed to listen for playlist updates: ${error.message}")
+                }
+            })
+        }
     }
+
 
     private fun displayMediaItem() {
         if (mediaList.isEmpty()) {
