@@ -60,11 +60,35 @@ class MainFragment : Fragment() {
 
         // Listen for playlist updates
         checkForPlaylistUpdates()
-
+        checkForScreenRemoval()
         // Fetch and display playlist
         fetchAndDisplayPlaylist()
 
         return view
+    }
+
+    private fun checkForScreenRemoval() {
+        val screenRef = screensDatabase.child(deviceSerial).child("paired")
+
+        screenRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val isPaired = snapshot.getValue(Boolean::class.java) ?: false
+                if (!isPaired) {
+                    Log.i(LOG_TAG, "Screen is unpaired. Navigating to PairingFragment.")
+                    navigateToPairingFragment()
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e(LOG_TAG, "Failed to check for paired status: ${error.message}")
+            }
+        })
+    }
+
+    private fun navigateToPairingFragment() {
+        requireActivity().supportFragmentManager.beginTransaction()
+            .replace(R.id.fragment_container, PairingFragment())
+            .commitAllowingStateLoss()
     }
 
     private fun getDeviceSerial(): String {
