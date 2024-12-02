@@ -13,8 +13,6 @@ import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.widget.ProgressBar
-import android.os.Handler
-import android.os.Looper
 import com.linkitmediagroup.linkitmediaplayer.AppConstants
 
 class PairingFragment : Fragment() {
@@ -56,10 +54,10 @@ class PairingFragment : Fragment() {
     private fun getDeviceSerial(): String {
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Build.getSerial() // Requires permission
+                Build.getSerial()
             } else {
                 @Suppress("DEPRECATION")
-                Build.SERIAL // Deprecated in Android O+
+                Build.SERIAL
             }
         } catch (e: SecurityException) {
             Log.e("PairingFragment", "Permission denied for serial: ${e.message}")
@@ -92,9 +90,7 @@ class PairingFragment : Fragment() {
                 )
                 deviceRef.setValue(deviceData).addOnSuccessListener {
                     Log.i(LOG_TAG, "Device data saved successfully")
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        listenForPairingUpdates()
-                    }, 300)
+                    listenForPairingUpdates()
                 }.addOnFailureListener { error ->
                     Log.e(LOG_TAG, "Failed to save device data: ${error.message}")
                 }
@@ -103,6 +99,15 @@ class PairingFragment : Fragment() {
         }.addOnFailureListener { error ->
             Log.e(LOG_TAG, "Failed to fetch device data: ${error.message}")
             pairingCodeTextView.text = "Error: Unable to retrieve pairing code."
+        }
+    }
+
+    private fun navigateToMainFragment() {
+        val activity = requireActivity() as MainActivity
+        activity.runOnUiThread {
+            requireActivity().supportFragmentManager.beginTransaction()
+                .replace(R.id.fragment_container, MainFragment())
+                .commit()
         }
     }
 
@@ -142,13 +147,6 @@ class PairingFragment : Fragment() {
             }
         }
         deviceRef.addValueEventListener(pairingListener)
-    }
-
-
-    private fun navigateToMainFragment() {
-        requireActivity().supportFragmentManager.beginTransaction()
-            .replace(R.id.fragment_container, MainFragment())
-            .commitNow()
     }
 
     private fun getCurrentDate(): String {

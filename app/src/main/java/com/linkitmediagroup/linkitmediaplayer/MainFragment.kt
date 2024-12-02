@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.ProgressBar
+import android.view.WindowManager
 import android.widget.TextView
 import android.widget.VideoView
 import androidx.fragment.app.Fragment
@@ -45,23 +46,18 @@ class MainFragment : Fragment() {
     ): View? {
         val view = inflater.inflate(R.layout.fragment_main, container, false)
 
-        // Initialize Firebase Database references
         screensDatabase = Firebase.database.reference.child("screens")
         playlistsDatabase = Firebase.database.reference.child("playlists")
 
-        // Initialize UI elements
         loadingSpinner = view.findViewById(R.id.loading_spinner)
         mediaTextView = view.findViewById(R.id.media_text)
         mediaImageView = view.findViewById(R.id.media_image)
         mediaVideoView = view.findViewById(R.id.media_video)
 
-        // Fetch device serial number
         deviceSerial = getDeviceSerial()
 
-        // Listen for playlist updates
         checkForPlaylistUpdates()
         checkForScreenRemoval()
-        // Fetch and display playlist
         fetchAndDisplayPlaylist()
 
         return view
@@ -74,7 +70,6 @@ class MainFragment : Fragment() {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val isPaired = snapshot.getValue(Boolean::class.java) ?: false
                 if (!isPaired) {
-                    Log.i(LOG_TAG, "Screen is unpaired. Navigating to PairingFragment.")
                     navigateToPairingFragment()
                 }
             }
@@ -100,10 +95,8 @@ class MainFragment : Fragment() {
                 android.os.Build.SERIAL
             }
         } catch (e: SecurityException) {
-            Log.e(LOG_TAG, "Permission denied for serial: ${e.message}")
             android.provider.Settings.Secure.getString(requireContext().contentResolver, android.provider.Settings.Secure.ANDROID_ID)
         } catch (e: Exception) {
-            Log.e(LOG_TAG, "Error retrieving serial: ${e.message}")
             android.provider.Settings.Secure.getString(requireContext().contentResolver, android.provider.Settings.Secure.ANDROID_ID)
         }
     }
@@ -116,18 +109,15 @@ class MainFragment : Fragment() {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val playlistId = snapshot.getValue(String::class.java)
                 if (playlistId.isNullOrEmpty()) {
-                    Log.i(LOG_TAG, "No playlist assigned to this screen.")
                     showPlaceholder("No playlist assigned.")
                     return
                 }
-                Log.i(LOG_TAG, "Fetching playlist with ID: $playlistId")
                 currentPlaylistId = playlistId
-                checkForPlaylistUpdates() // Start listening for updates
+                checkForPlaylistUpdates()
                 fetchPlaylistItems(playlistId)
             }
 
             override fun onCancelled(error: DatabaseError) {
-                Log.e(LOG_TAG, "Failed to fetch playlist ID: ${error.message}")
                 showPlaceholder("Error fetching playlist.")
             }
         })
@@ -148,22 +138,19 @@ class MainFragment : Fragment() {
                 }
 
                 if (newMediaList.isNotEmpty()) {
-                    Log.i(LOG_TAG, "Playlist items updated.")
                     mediaList = newMediaList
-                    currentIndex = 0 // Reset to the beginning of the playlist
-                    displayMediaItem() // Start displaying updated playlist
+                    currentIndex = 0
+                    displayMediaItem()
                 } else {
-                    Log.i(LOG_TAG, "Playlist is empty.")
                     showPlaceholder("Playlist is empty.")
                 }
-                isPlaylistUpdatePending = false // Reset pending update flag
+                isPlaylistUpdatePending = false
                 loadingSpinner.visibility = View.GONE
             }
 
             override fun onCancelled(error: DatabaseError) {
-                Log.e(LOG_TAG, "Failed to fetch playlist items: ${error.message}")
                 showPlaceholder("Error fetching playlist items.")
-                isPlaylistUpdatePending = false // Reset pending update flag
+                isPlaylistUpdatePending = false
                 loadingSpinner.visibility = View.GONE
             }
         })
@@ -172,14 +159,13 @@ class MainFragment : Fragment() {
     private fun checkForPlaylistUpdates() {
         val screenRef = screensDatabase.child(deviceSerial)
 
-        // Listen for changes to the assigned playlist ID
         screenRef.child("currentPlaylistAssigned").addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val newPlaylistId = snapshot.getValue(String::class.java)
                 if (!newPlaylistId.isNullOrEmpty() && newPlaylistId != currentPlaylistId) {
                     Log.i(LOG_TAG, "Detected a playlist ID change. Fetching new playlist.")
-                    currentPlaylistId = newPlaylistId // Update current playlist ID
-                    fetchPlaylistItems(newPlaylistId) // Fetch new playlist items immediately
+                    currentPlaylistId = newPlaylistId
+                    fetchPlaylistItems(newPlaylistId)
                 }
             }
 
@@ -188,12 +174,10 @@ class MainFragment : Fragment() {
             }
         })
 
-        // Listen for changes to the items in the current playlist
         if (!currentPlaylistId.isNullOrEmpty()) {
             playlistsDatabase.child(currentPlaylistId!!).child("items").addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    Log.i(LOG_TAG, "Detected an update in playlist items. Marking update as pending.")
-                    isPlaylistUpdatePending = true // Mark the playlist as needing an update
+                    isPlaylistUpdatePending = true
                 }
 
                 override fun onCancelled(error: DatabaseError) {
@@ -202,7 +186,6 @@ class MainFragment : Fragment() {
             })
         }
     }
-
 
     private fun displayMediaItem() {
         if (mediaList.isEmpty()) {
@@ -227,12 +210,11 @@ class MainFragment : Fragment() {
                 handler.postDelayed({
                     rotationInProgress = false
 
-                    // Check if this is the last item in the playlist
                     if (currentIndex == mediaList.size - 1) {
                         if (isPlaylistUpdatePending) {
                             fetchPlaylistItems(currentPlaylistId!!)
                         } else {
-                            currentIndex = 0 // Restart playlist
+                            currentIndex = 0
                             displayMediaItem()
                         }
                     } else {
@@ -249,12 +231,11 @@ class MainFragment : Fragment() {
                 mediaVideoView.setOnCompletionListener {
                     rotationInProgress = false
 
-                    // Check if this is the last item in the playlist
                     if (currentIndex == mediaList.size - 1) {
                         if (isPlaylistUpdatePending) {
                             fetchPlaylistItems(currentPlaylistId!!)
                         } else {
-                            currentIndex = 0 // Restart playlist
+                            currentIndex = 0
                             displayMediaItem()
                         }
                     } else {
@@ -265,7 +246,6 @@ class MainFragment : Fragment() {
             }
         }
     }
-
 
     private fun showPlaceholder(message: String) {
         mediaImageView.visibility = View.GONE
@@ -278,5 +258,15 @@ class MainFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         handler.removeCallbacksAndMessages(null)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 }

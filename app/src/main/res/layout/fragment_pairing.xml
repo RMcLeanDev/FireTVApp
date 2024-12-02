@@ -4,6 +4,15 @@
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
+    <!-- Progress bar for loading state -->
+    <ProgressBar
+        android:id="@+id/loading_spinner"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:visibility="visible" />
+
+    <!-- TextView for pairing code -->
     <TextView
         android:id="@+id/pairing_code_text"
         android:layout_width="wrap_content"
@@ -11,6 +20,7 @@
         android:layout_gravity="center"
         android:text="Pairing Code: XXXX-XXXX"
         android:textSize="20sp"
-        android:textColor="@android:color/white" />
+        android:textColor="@android:color/white"
+        android:visibility="gone" />
 
 </FrameLayout>
