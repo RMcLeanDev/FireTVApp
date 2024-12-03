@@ -53,6 +53,9 @@ dependencies {
     implementation("com.google.firebase:firebase-database-ktx:20.2.1")
     implementation("com.google.firebase:firebase-storage-ktx:20.2.1")
     implementation("com.google.firebase:firebase-common-ktx:20.2.1")
+    implementation("androidx.media3:media3-exoplayer:1.5.0")
+    implementation("androidx.media3:media3-ui:1.5.0")
+    implementation("androidx.media3:media3-common:1.5.0")
 
     // Room (for offline caching)
     implementation("androidx.room:room-runtime:2.5.1")

@@ -13,6 +13,12 @@ import android.view.WindowManager
 import android.widget.TextView
 import android.widget.VideoView
 import androidx.fragment.app.Fragment
+import android.net.Uri
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import com.bumptech.glide.Glide
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
@@ -34,8 +40,32 @@ class MainFragment : Fragment() {
     private var currentPlaylistId: String? = null
     private lateinit var mediaTextView: TextView
     private lateinit var mediaImageView: ImageView
-    private lateinit var mediaVideoView: VideoView
+    private lateinit var mediaPlayerView: PlayerView
+    private lateinit var exoPlayer: ExoPlayer
+    private var hasError = false
     private var isPlaylistUpdatePending = false
+    private val eventListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(state: Int) {
+            when (state) {
+                Player.STATE_READY -> {
+                    Log.i(LOG_TAG, "Video is ready to play.")
+                    rotationInProgress = true // Ensure we're tracking that a media item is playing
+                }
+                Player.STATE_ENDED -> {
+                    Log.i(LOG_TAG, "Video playback completed naturally.")
+                    rotationInProgress = false
+                    moveToNextMedia() // Immediately transition to the next media item
+                }
+                Player.STATE_BUFFERING -> Log.i(LOG_TAG, "Video is buffering.")
+                Player.STATE_IDLE -> Log.i(LOG_TAG, "Player is idle.")
+            }
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            Log.e(LOG_TAG, "Media3 error: ${error.message}")
+            hasError = true
+        }
+    }
     val LOG_TAG = AppConstants.LOG_TAG
 
     data class MediaItem(val url: String, val type: String, val duration: Long = 3000L)
@@ -52,7 +82,11 @@ class MainFragment : Fragment() {
         loadingSpinner = view.findViewById(R.id.loading_spinner)
         mediaTextView = view.findViewById(R.id.media_text)
         mediaImageView = view.findViewById(R.id.media_image)
-        mediaVideoView = view.findViewById(R.id.media_video)
+        mediaPlayerView = view.findViewById(R.id.media_player_view)
+
+        // Initialize ExoPlayer
+        exoPlayer = ExoPlayer.Builder(requireContext()).build()
+        mediaPlayerView.player = exoPlayer
 
         deviceSerial = getDeviceSerial()
 
@@ -161,10 +195,12 @@ class MainFragment : Fragment() {
 
     private fun checkForPlaylistUpdates() {
         val screenRef = screensDatabase.child(deviceSerial)
+        Log.i(LOG_TAG, "Checking for playlist updates...")
 
         screenRef.child("currentPlaylistAssigned").addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val newPlaylistId = snapshot.getValue(String::class.java)
+                Log.i(LOG_TAG, "Detected newPlaylistId: $newPlaylistId, currentPlaylistId: $currentPlaylistId")
                 if (!newPlaylistId.isNullOrEmpty() && newPlaylistId != currentPlaylistId) {
                     Log.i(LOG_TAG, "Detected a playlist ID change. Fetching new playlist.")
                     currentPlaylistId = newPlaylistId
@@ -180,6 +216,7 @@ class MainFragment : Fragment() {
         if (!currentPlaylistId.isNullOrEmpty()) {
             playlistsDatabase.child(currentPlaylistId!!).child("items").addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
+                    Log.i(LOG_TAG, "Playlist updates detected. Setting isPlaylistUpdatePending to true.")
                     isPlaylistUpdatePending = true
                 }
 
@@ -200,13 +237,13 @@ class MainFragment : Fragment() {
         rotationInProgress = true
 
         val mediaItem = mediaList[currentIndex]
-        Log.i(LOG_TAG, "Displaying media item: type=${mediaItem.type}, url=${mediaItem.url}")
 
         when (mediaItem.type) {
             "image" -> {
-                Log.i(LOG_TAG, "Loading image: ${mediaItem.url}")
-                mediaVideoView.visibility = View.GONE
+                cleanupExoPlayer() // Ensure the ExoPlayer is reset when switching to an image
+                mediaPlayerView.visibility = View.GONE
                 mediaImageView.visibility = View.VISIBLE
+
                 Glide.with(this)
                     .load(mediaItem.url)
                     .error(R.drawable.error_placeholder)
@@ -218,44 +255,75 @@ class MainFragment : Fragment() {
                 }, mediaItem.duration)
             }
             "video" -> {
-                Log.i(LOG_TAG, "Playing video: ${mediaItem.url}")
                 mediaImageView.visibility = View.GONE
-                mediaVideoView.visibility = View.VISIBLE
-                mediaVideoView.setVideoPath(mediaItem.url)
+                mediaPlayerView.visibility = View.VISIBLE
 
-                mediaVideoView.setOnPreparedListener {
-                    loadingSpinner.visibility = View.GONE
-                    handler.postDelayed({
-                        mediaVideoView.start()
-                        Log.i(LOG_TAG, "Video playback started.")
-                    }, 500) // Add a delay to ensure the video buffers
-                }
-                mediaVideoView.setOnCompletionListener {
-                    Log.i(LOG_TAG, "Video playback completed.")
-                    rotationInProgress = false
-                    moveToNextMedia()
-                }
-                mediaVideoView.setOnErrorListener { _, _, _ ->
-                    Log.e(LOG_TAG, "Video playback failed: ${mediaItem.url}")
-                    showPlaceholder("Video playback error. Skipping...")
-                    handler.postDelayed({
-                        rotationInProgress = false
-                        moveToNextMedia()
-                    }, 2000) // Pause briefly before skipping
-                    true
-                }
+                cleanupExoPlayer() // Reset ExoPlayer before setting up a new media item
+                val videoMediaItem = androidx.media3.common.MediaItem.Builder()
+                    .setUri(Uri.parse(mediaItem.url))
+                    .build()
+
+                exoPlayer.setMediaItem(videoMediaItem)
+                exoPlayer.prepare()
+                exoPlayer.play()
+
+                exoPlayer.removeListener(eventListener)
+                exoPlayer.addListener(eventListener) // Attach the listener
+
+                // Handle timeout for Firebase-defined duration
+                handler.postDelayed({
+                    if (rotationInProgress) {
+                        if (hasError) {
+                            Log.i(LOG_TAG, "Timeout reached and error detected. Handling video error.")
+                            handleVideoError()
+
+                            mediaImageView.visibility = View.GONE
+                            mediaPlayerView.visibility = View.GONE
+                            mediaTextView.visibility = View.VISIBLE
+                            mediaTextView.text = "Video failed to load. Skipping..."
+
+                        } else {
+                            Log.i(LOG_TAG, "Timeout reached. Moving to next media item.")
+                            moveToNextMedia()
+                        }
+                    }
+                }, mediaItem.duration)
             }
         }
     }
 
+    private fun handleVideoError() {
+        Log.e(LOG_TAG, "Handling video error for URL: ${mediaList[currentIndex].url}")
+        hasError = false // Reset error flag for the next item
+
+        cleanupExoPlayer()
+
+        handler.post {
+            Log.i(LOG_TAG, "Hiding error message text view.")
+            mediaTextView.visibility = View.GONE
+            moveToNextMedia() // Transition to the next media item after cleanup
+        }
+    }
+
     private fun moveToNextMedia() {
+        cleanupExoPlayer() // Reset player state before transitioning
+
+        rotationInProgress = false
         currentIndex = (currentIndex + 1) % mediaList.size
         displayMediaItem()
     }
 
+    private fun cleanupExoPlayer() {
+        exoPlayer.stop()
+        exoPlayer.seekTo(0)
+        exoPlayer.clearMediaItems()
+        exoPlayer.removeListener(eventListener)
+        exoPlayer.setPlayWhenReady(false)
+    }
+
     private fun showPlaceholder(message: String) {
         mediaImageView.visibility = View.GONE
-        mediaVideoView.visibility = View.GONE
+        mediaPlayerView.visibility = View.GONE
         mediaTextView.visibility = View.VISIBLE
         mediaTextView.text = message
         loadingSpinner.visibility = View.GONE
@@ -263,6 +331,7 @@ class MainFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        exoPlayer.release()
         handler.removeCallbacksAndMessages(null)
     }
 
