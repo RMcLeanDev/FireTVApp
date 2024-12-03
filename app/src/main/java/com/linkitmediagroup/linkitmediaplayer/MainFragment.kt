@@ -142,13 +142,16 @@ class MainFragment : Fragment() {
                     currentIndex = 0
                     displayMediaItem()
                 } else {
+                    Log.w(LOG_TAG, "Playlist is empty.")
                     showPlaceholder("Playlist is empty.")
                 }
+
                 isPlaylistUpdatePending = false
                 loadingSpinner.visibility = View.GONE
             }
 
             override fun onCancelled(error: DatabaseError) {
+                Log.e(LOG_TAG, "Failed to fetch playlist items: ${error.message}")
                 showPlaceholder("Error fetching playlist items.")
                 isPlaylistUpdatePending = false
                 loadingSpinner.visibility = View.GONE
@@ -192,16 +195,18 @@ class MainFragment : Fragment() {
             showPlaceholder("No media available.")
             return
         }
-        if (rotationInProgress) return
 
+        if (rotationInProgress) return
         rotationInProgress = true
+
         val mediaItem = mediaList[currentIndex]
+        Log.i(LOG_TAG, "Displaying media item: type=${mediaItem.type}, url=${mediaItem.url}")
 
         when (mediaItem.type) {
             "image" -> {
+                Log.i(LOG_TAG, "Loading image: ${mediaItem.url}")
                 mediaVideoView.visibility = View.GONE
                 mediaImageView.visibility = View.VISIBLE
-
                 Glide.with(this)
                     .load(mediaItem.url)
                     .error(R.drawable.error_placeholder)
@@ -209,42 +214,43 @@ class MainFragment : Fragment() {
 
                 handler.postDelayed({
                     rotationInProgress = false
-
-                    if (currentIndex == mediaList.size - 1) {
-                        if (isPlaylistUpdatePending) {
-                            fetchPlaylistItems(currentPlaylistId!!)
-                        } else {
-                            currentIndex = 0
-                            displayMediaItem()
-                        }
-                    } else {
-                        currentIndex++
-                        displayMediaItem()
-                    }
+                    moveToNextMedia()
                 }, mediaItem.duration)
             }
             "video" -> {
+                Log.i(LOG_TAG, "Playing video: ${mediaItem.url}")
                 mediaImageView.visibility = View.GONE
                 mediaVideoView.visibility = View.VISIBLE
                 mediaVideoView.setVideoPath(mediaItem.url)
-                mediaVideoView.setOnPreparedListener { mediaVideoView.start() }
-                mediaVideoView.setOnCompletionListener {
-                    rotationInProgress = false
 
-                    if (currentIndex == mediaList.size - 1) {
-                        if (isPlaylistUpdatePending) {
-                            fetchPlaylistItems(currentPlaylistId!!)
-                        } else {
-                            currentIndex = 0
-                            displayMediaItem()
-                        }
-                    } else {
-                        currentIndex++
-                        displayMediaItem()
-                    }
+                mediaVideoView.setOnPreparedListener {
+                    loadingSpinner.visibility = View.GONE
+                    handler.postDelayed({
+                        mediaVideoView.start()
+                        Log.i(LOG_TAG, "Video playback started.")
+                    }, 500) // Add a delay to ensure the video buffers
+                }
+                mediaVideoView.setOnCompletionListener {
+                    Log.i(LOG_TAG, "Video playback completed.")
+                    rotationInProgress = false
+                    moveToNextMedia()
+                }
+                mediaVideoView.setOnErrorListener { _, _, _ ->
+                    Log.e(LOG_TAG, "Video playback failed: ${mediaItem.url}")
+                    showPlaceholder("Video playback error. Skipping...")
+                    handler.postDelayed({
+                        rotationInProgress = false
+                        moveToNextMedia()
+                    }, 2000) // Pause briefly before skipping
+                    true
                 }
             }
         }
+    }
+
+    private fun moveToNextMedia() {
+        currentIndex = (currentIndex + 1) % mediaList.size
+        displayMediaItem()
     }
 
     private fun showPlaceholder(message: String) {
