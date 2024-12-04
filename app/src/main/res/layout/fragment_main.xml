@@ -34,4 +34,31 @@
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:indeterminate="true" />
+
+<LinearLayout
+    android:id="@+id/error_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/lb_grey"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:visibility="gone"
+    android:elevation="10dp">
+
+        <ImageView
+            android:id="@+id/error_image"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@drawable/error_placeholder" />
+
+        <TextView
+            android:id="@+id/error_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:text="Failed to load the video."
+            android:textColor="@android:color/white"
+            android:textSize="18sp" />
+    </LinearLayout>
 </FrameLayout>

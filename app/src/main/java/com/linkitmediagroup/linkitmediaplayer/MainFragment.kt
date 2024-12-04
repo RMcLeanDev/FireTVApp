@@ -42,6 +42,7 @@ class MainFragment : Fragment() {
     private lateinit var mediaImageView: ImageView
     private lateinit var mediaPlayerView: PlayerView
     private lateinit var exoPlayer: ExoPlayer
+    private lateinit var errorLayout: View
     private var hasError = false
     private var isPlaylistUpdatePending = false
     private val eventListener = object : Player.Listener {
@@ -83,6 +84,7 @@ class MainFragment : Fragment() {
         mediaTextView = view.findViewById(R.id.media_text)
         mediaImageView = view.findViewById(R.id.media_image)
         mediaPlayerView = view.findViewById(R.id.media_player_view)
+        errorLayout = view.findViewById(R.id.error_layout)
 
         // Initialize ExoPlayer
         exoPlayer = ExoPlayer.Builder(requireContext()).build()
@@ -275,13 +277,10 @@ class MainFragment : Fragment() {
                     if (rotationInProgress) {
                         if (hasError) {
                             Log.i(LOG_TAG, "Timeout reached and error detected. Handling video error.")
-                            handleVideoError()
-
-                            mediaImageView.visibility = View.GONE
                             mediaPlayerView.visibility = View.GONE
-                            mediaTextView.visibility = View.VISIBLE
-                            mediaTextView.text = "Video failed to load. Skipping..."
-
+                            errorLayout.visibility = View.VISIBLE
+                            errorLayout.bringToFront()
+                            handleVideoError()
                         } else {
                             Log.i(LOG_TAG, "Timeout reached. Moving to next media item.")
                             moveToNextMedia()
@@ -295,12 +294,11 @@ class MainFragment : Fragment() {
     private fun handleVideoError() {
         Log.e(LOG_TAG, "Handling video error for URL: ${mediaList[currentIndex].url}")
         hasError = false // Reset error flag for the next item
-
         cleanupExoPlayer()
 
         handler.post {
             Log.i(LOG_TAG, "Hiding error message text view.")
-            mediaTextView.visibility = View.GONE
+            errorLayout.visibility = View.GONE
             moveToNextMedia() // Transition to the next media item after cleanup
         }
     }
