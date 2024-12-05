@@ -35,7 +35,8 @@ class MainActivity : FragmentActivity() {
             val initialFragment = when {
                 !hasPermission -> PermissionFragment()
                 !isPaired -> PairingFragment()
-                else -> MainFragment()
+                isPaired -> MainFragment()
+                else -> PairingFragment()
             }
 
             supportFragmentManager.beginTransaction()

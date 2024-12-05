@@ -41,10 +41,12 @@ class PairingFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View? {
         val view = inflater.inflate(R.layout.fragment_pairing, container, false)
+
         pairingCodeTextView = view.findViewById(R.id.pairing_code_text)
         screensDatabase = Firebase.database.reference.child(SCREENS_PATH)
+        loadingSpinner = view.findViewById(R.id.loading_spinner)
         deviceSerial = getDeviceSerial()
-
+        Log.i(LOG_TAG, "pairing fragment")
         fetchOrGeneratePairingCode()
         listenForPairingUpdates()
 
@@ -76,9 +78,25 @@ class PairingFragment : Fragment() {
         deviceRef.get().addOnSuccessListener { snapshot ->
             if (snapshot.exists()) {
                 pairingCode = snapshot.child(FIELD_PAIRING_CODE).value as String
+
+                val paired = snapshot.child(FIELD_PAIRED).value as? Boolean ?: false
+                val playlistId = snapshot.child(FIELD_PLAYLIST).value as? String
+
+                if (!paired) {
+                    // Display the pairing code only if the screen is not paired
+                    displayPairingCode(pairingCode)
+                } else if (paired && playlistId.isNullOrEmpty()) {
+                    // Screen is paired but no playlist assigned
+                    pairingCodeTextView.text = "Waiting for playlist assignment..."
+                    loadingSpinner.visibility = View.GONE
+                    pairingCodeTextView.visibility = View.VISIBLE
+                } else if (paired) {
+                    // Screen is paired and playlist assigned
+                    pairingCodeTextView.text = "Loading playlist..."
+                    navigateToMainFragment()
+                }
             } else {
                 pairingCode = generatePairingCode()
-                Log.i(LOG_TAG, "Generated new pairing code: $pairingCode")
 
                 val deviceData = mapOf(
                     FIELD_UUID to deviceSerial,
@@ -94,8 +112,8 @@ class PairingFragment : Fragment() {
                 }.addOnFailureListener { error ->
                     Log.e(LOG_TAG, "Failed to save device data: ${error.message}")
                 }
+                displayPairingCode(pairingCode)
             }
-            displayPairingCode(pairingCode)
         }.addOnFailureListener { error ->
             Log.e(LOG_TAG, "Failed to fetch device data: ${error.message}")
             pairingCodeTextView.text = "Error: Unable to retrieve pairing code."
@@ -118,22 +136,28 @@ class PairingFragment : Fragment() {
             override fun onDataChange(snapshot: DataSnapshot) {
                 if (snapshot.exists()) {
                     val pairingCodeFromFirebase = snapshot.child(FIELD_PAIRING_CODE).value as? String
-                    if (!pairingCodeFromFirebase.isNullOrEmpty() && pairingCodeTextView.text.isNullOrEmpty()) {
-                        displayPairingCode(pairingCodeFromFirebase)
-                    }
-
                     val paired = snapshot.child(FIELD_PAIRED).value as? Boolean ?: false
                     val playlistId = snapshot.child(FIELD_PLAYLIST).value as? String
 
                     when {
-                        paired && playlistId != null -> {
+                        paired && playlistId.isNullOrEmpty() -> {
+                            // Screen is paired, but no playlist assigned
+                            Log.i(LOG_TAG, "Screen is paired but no playlist assigned.")
+                            pairingCodeTextView.text = "Waiting for playlist assignment..."
+                        }
+                        paired && !playlistId.isNullOrEmpty() -> {
+                            // Screen is paired and playlist is assigned
                             Log.i(LOG_TAG, "Screen is paired and playlist is assigned. Navigating to MainFragment.")
                             pairingCodeTextView.text = "Loading playlist..."
                             navigateToMainFragment()
                         }
-                        paired -> {
-                            pairingCodeTextView.text = "Waiting for playlist assignment..."
-                            Log.i(LOG_TAG, "Screen is paired but no playlist assigned.")
+                        !paired && !pairingCodeFromFirebase.isNullOrEmpty() -> {
+                            // Screen is not paired, display pairing code
+                            Log.i(LOG_TAG, "Displaying pairing code: $pairingCodeFromFirebase")
+                            displayPairingCode(pairingCodeFromFirebase)
+                        }
+                        else -> {
+                            Log.e(LOG_TAG, "Unhandled state: paired=$paired, playlistId=$playlistId")
                         }
                     }
                 } else {
@@ -156,6 +180,8 @@ class PairingFragment : Fragment() {
 
     private fun displayPairingCode(code: String) {
         pairingCodeTextView.text = "Pairing Code: $code"
+        loadingSpinner.visibility = View.GONE
+        pairingCodeTextView.visibility = View.VISIBLE
         Log.i(LOG_TAG, "Displaying pairing code: $code")
     }
 

@@ -86,7 +86,7 @@ class MainFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View? {
         val view = inflater.inflate(R.layout.fragment_main, container, false)
-
+        Log.i(LOG_TAG, "main fragment")
         screensDatabase = Firebase.database.reference.child("screens")
         playlistsDatabase = Firebase.database.reference.child("playlists")
 
