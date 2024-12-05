@@ -15,6 +15,7 @@
     <string name="failed_to_load_media">Failed to load media.</string>
     <string name="unsupported_media_type">Unsupported media type</string>
     <string name="no_media_available">Cannot find media…</string>
+    <string name="error_image_description">Error placeholder image</string>
     <string name="permission_info">
     To ensure a smooth and secure experience, we require access to your device\'s information.
     This helps us generate a unique pairing code, enabling easy connection and seamless playlist display.

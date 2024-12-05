@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Define dimensions for the error image -->
+    <dimen name="error_image_width">500dp</dimen>
+    <dimen name="error_image_height">200dp</dimen>
+
+    <!-- Define dimensions for the text size -->
+    <dimen name="error_text_size">18sp</dimen>
+</resources>

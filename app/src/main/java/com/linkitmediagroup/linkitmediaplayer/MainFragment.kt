@@ -64,6 +64,16 @@ class MainFragment : Fragment() {
 
         override fun onPlayerError(error: PlaybackException) {
             Log.e(LOG_TAG, "Media3 error: ${error.message}")
+            val errorMessage = when (error.errorCode) {
+                PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "Network connection failed."
+                PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "Video file not found."
+                PlaybackException.ERROR_CODE_DECODING_FAILED -> "Decoding error occurred."
+                else -> "Error: ${error.message}"
+            }
+            val errorTextView = view?.findViewById<TextView>(R.id.error_text)
+            errorTextView?.text = errorMessage
+            errorLayout.visibility = View.VISIBLE
+            errorLayout.bringToFront()
             hasError = true
         }
     }
@@ -197,12 +207,10 @@ class MainFragment : Fragment() {
 
     private fun checkForPlaylistUpdates() {
         val screenRef = screensDatabase.child(deviceSerial)
-        Log.i(LOG_TAG, "Checking for playlist updates...")
 
         screenRef.child("currentPlaylistAssigned").addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val newPlaylistId = snapshot.getValue(String::class.java)
-                Log.i(LOG_TAG, "Detected newPlaylistId: $newPlaylistId, currentPlaylistId: $currentPlaylistId")
                 if (!newPlaylistId.isNullOrEmpty() && newPlaylistId != currentPlaylistId) {
                     Log.i(LOG_TAG, "Detected a playlist ID change. Fetching new playlist.")
                     currentPlaylistId = newPlaylistId
@@ -277,9 +285,6 @@ class MainFragment : Fragment() {
                     if (rotationInProgress) {
                         if (hasError) {
                             Log.i(LOG_TAG, "Timeout reached and error detected. Handling video error.")
-                            mediaPlayerView.visibility = View.GONE
-                            errorLayout.visibility = View.VISIBLE
-                            errorLayout.bringToFront()
                             handleVideoError()
                         } else {
                             Log.i(LOG_TAG, "Timeout reached. Moving to next media item.")
@@ -294,11 +299,13 @@ class MainFragment : Fragment() {
     private fun handleVideoError() {
         Log.e(LOG_TAG, "Handling video error for URL: ${mediaList[currentIndex].url}")
         hasError = false // Reset error flag for the next item
+        val errorTextView = view?.findViewById<TextView>(R.id.error_text)
         cleanupExoPlayer()
 
         handler.post {
             Log.i(LOG_TAG, "Hiding error message text view.")
             errorLayout.visibility = View.GONE
+            errorTextView?.text = ""
             moveToNextMedia() // Transition to the next media item after cleanup
         }
     }
@@ -308,7 +315,12 @@ class MainFragment : Fragment() {
 
         rotationInProgress = false
         currentIndex = (currentIndex + 1) % mediaList.size
-        displayMediaItem()
+        if (currentIndex == 0 && isPlaylistUpdatePending){
+            fetchPlaylistItems(currentPlaylistId!!)
+            isPlaylistUpdatePending = false
+        } else {
+            displayMediaItem()
+        }
     }
 
     private fun cleanupExoPlayer() {
