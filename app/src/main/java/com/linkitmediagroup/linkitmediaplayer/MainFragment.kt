@@ -95,8 +95,6 @@ class MainFragment : Fragment() {
         mediaImageView = view.findViewById(R.id.media_image)
         mediaPlayerView = view.findViewById(R.id.media_player_view)
         errorLayout = view.findViewById(R.id.error_layout)
-
-        // Initialize ExoPlayer
         exoPlayer = ExoPlayer.Builder(requireContext()).build()
         mediaPlayerView.player = exoPlayer
 
@@ -111,19 +109,22 @@ class MainFragment : Fragment() {
 
     private fun checkForScreenRemoval() {
         val screenRef = screensDatabase.child(deviceSerial).child("paired")
-
+        Log.i(LOG_TAG, "check for screen removal")
         screenRef.addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val isPaired = snapshot.getValue(Boolean::class.java) ?: false
                 if (!isPaired) {
+                    Log.i(LOG_TAG, "screen removal is not paired")
                     navigateToPairingFragment()
                 }
+                Log.i(LOG_TAG, "screen removal is paired")
             }
 
             override fun onCancelled(error: DatabaseError) {
                 Log.e(LOG_TAG, "Failed to check for paired status: ${error.message}")
             }
         })
+        Log.i(LOG_TAG, "check for screen removal end")
     }
 
     private fun navigateToPairingFragment() {
@@ -148,28 +149,42 @@ class MainFragment : Fragment() {
     }
 
     private fun fetchAndDisplayPlaylist() {
+        Log.i(LOG_TAG, "fetch and display playlist")
         loadingSpinner.visibility = View.VISIBLE
-
         val screenRef = screensDatabase.child(deviceSerial)
         screenRef.child("currentPlaylistAssigned").addListenerForSingleValueEvent(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
-                val playlistId = snapshot.getValue(String::class.java)
-                if (playlistId.isNullOrEmpty()) {
+                Log.i(LOG_TAG, "fetch and display playlist on data change")
+                if (!snapshot.exists()) {
+                    Log.e(LOG_TAG, "Snapshot does not exist for currentPlaylistAssigned.")
                     showPlaceholder("No playlist assigned.")
                     return
                 }
+
+                val playlistId = snapshot.getValue(String::class.java)
+                Log.i(LOG_TAG, "Retrieved playlistId: $playlistId")
+
+                if (playlistId.isNullOrEmpty()) {
+                    Log.i(LOG_TAG, "fetch and display playlist isnullorempty")
+                    showPlaceholder("No playlist assigned.")
+                    return
+                }
+                Log.i(LOG_TAG, "fetch and display playlist else")
                 currentPlaylistId = playlistId
                 checkForPlaylistUpdates()
                 fetchPlaylistItems(playlistId)
             }
 
             override fun onCancelled(error: DatabaseError) {
+                Log.i(LOG_TAG, "fetch and display playlist on cancelled")
                 showPlaceholder("Error fetching playlist.")
             }
         })
+        Log.i(LOG_TAG, "fetch and display playlist end")
     }
 
     private fun fetchPlaylistItems(playlistId: String) {
+        Log.i(LOG_TAG, "fetch playlist items")
         playlistsDatabase.child(playlistId).child("items").addListenerForSingleValueEvent(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val newMediaList = mutableListOf<MediaItem>()
@@ -184,6 +199,7 @@ class MainFragment : Fragment() {
                 }
 
                 if (newMediaList.isNotEmpty()) {
+                    Log.i(LOG_TAG, "newMediaList not empty")
                     mediaList = newMediaList
                     currentIndex = 0
                     displayMediaItem()
@@ -206,16 +222,19 @@ class MainFragment : Fragment() {
     }
 
     private fun checkForPlaylistUpdates() {
+        Log.i(LOG_TAG, "check for playlist updates")
         val screenRef = screensDatabase.child(deviceSerial)
 
         screenRef.child("currentPlaylistAssigned").addValueEventListener(object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
+                Log.i(LOG_TAG, "check for playlist updates ondatachange")
                 val newPlaylistId = snapshot.getValue(String::class.java)
                 if (!newPlaylistId.isNullOrEmpty() && newPlaylistId != currentPlaylistId) {
                     Log.i(LOG_TAG, "Detected a playlist ID change. Fetching new playlist.")
                     currentPlaylistId = newPlaylistId
                     fetchPlaylistItems(newPlaylistId)
                 }
+                Log.i(LOG_TAG, "check for playlist updates ondatachange end")
             }
 
             override fun onCancelled(error: DatabaseError) {
@@ -224,6 +243,7 @@ class MainFragment : Fragment() {
         })
 
         if (!currentPlaylistId.isNullOrEmpty()) {
+            Log.i(LOG_TAG, "check for playlist updates !currentPlaylistID")
             playlistsDatabase.child(currentPlaylistId!!).child("items").addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     Log.i(LOG_TAG, "Playlist updates detected. Setting isPlaylistUpdatePending to true.")
@@ -235,14 +255,16 @@ class MainFragment : Fragment() {
                 }
             })
         }
+        Log.i(LOG_TAG, "check for playlist updates end")
     }
 
     private fun displayMediaItem() {
         if (mediaList.isEmpty()) {
+            Log.i(LOG_TAG, "Media list is empty. Showing placeholder.")
             showPlaceholder("No media available.")
             return
         }
-
+        Log.i(LOG_TAG, "display media item start")
         if (rotationInProgress) return
         rotationInProgress = true
 
