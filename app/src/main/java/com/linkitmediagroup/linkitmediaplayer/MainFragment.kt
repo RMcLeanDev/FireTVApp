@@ -22,10 +22,13 @@ import androidx.media3.ui.PlayerView
 import com.bumptech.glide.Glide
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
+import android.graphics.Color
 import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.ValueEventListener
 import com.google.firebase.ktx.Firebase
+import android.os.PowerManager
 import com.google.firebase.database.ktx.database
+import android.content.Context
 
 class MainFragment : Fragment() {
 
@@ -43,7 +46,9 @@ class MainFragment : Fragment() {
     private lateinit var mediaPlayerView: PlayerView
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var errorLayout: View
+    private lateinit var rootView: View
     private var hasError = false
+    private lateinit var wakeLock: PowerManager.WakeLock
     private var isPlaylistUpdatePending = false
     private val eventListener = object : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
@@ -100,11 +105,58 @@ class MainFragment : Fragment() {
 
         deviceSerial = getDeviceSerial()
 
+        listenForCommands()
         checkForPlaylistUpdates()
         checkForScreenRemoval()
         fetchAndDisplayPlaylist()
 
         return view
+    }
+
+    private fun listenForCommands() {
+        val commandRef = screensDatabase.child(deviceSerial).child("commands")
+
+        commandRef.addValueEventListener(object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val command = snapshot.child("action").getValue(String::class.java)
+                command?.let {
+                    when (it) {
+                        "sleep" -> enterSleepMode()
+                        "wake" -> exitSleepMode()
+                    }
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e(LOG_TAG, "Failed to listen for commands: ${error.message}")
+            }
+        })
+    }
+
+    private fun enterSleepMode() {
+        Log.d(LOG_TAG, "Entering sleep mode...")
+
+        cleanupExoPlayer()
+        mediaImageView.visibility = View.GONE
+        mediaPlayerView.visibility = View.GONE
+        mediaTextView.visibility = View.GONE
+
+        val powerManager = requireActivity().getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::SleepModeWakeLock")
+        wakeLock.acquire()
+
+        rootView.setBackgroundColor(Color.BLACK)
+    }
+
+    private fun exitSleepMode() {
+        Log.d(LOG_TAG, "Exiting sleep mode...")
+
+        if (wakeLock.isHeld) {
+            wakeLock.release()
+        }
+
+        rootView.setBackgroundColor(Color.BLACK)
+        fetchAndDisplayPlaylist()
     }
 
     private fun checkForScreenRemoval() {
